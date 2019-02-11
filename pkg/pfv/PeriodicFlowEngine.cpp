@@ -138,7 +138,7 @@ void PeriodicFlowEngine:: action()
         epsVolCumulative += epsVolMax;
 	retriangulationLastIter++;
 	if (!updateTriangulation) updateTriangulation = // If not already set true by another function of by the user, check conditions
-		(defTolerance>0 && epsVolCumulative > defTolerance) || retriangulationLastIter>meshUpdateInterval;
+		(defTolerance>0 && epsVolCumulative > defTolerance) || (meshUpdateInterval>0  && retriangulationLastIter>meshUpdateInterval);
 
 	timingDeltas->checkpoint("Update_Volumes");
 
@@ -179,7 +179,7 @@ void PeriodicFlowEngine:: action()
 	timingDeltas->checkpoint("Applying Forces");
 	if (multithread && !first) {
 		while (updateTriangulation && !backgroundCompleted) { /*cout<<"sleeping..."<<sleeping++<<endl;*/ 	boost::this_thread::sleep(boost::posix_time::microseconds(1000));}
-		if (updateTriangulation || ellapsedIter>(0.5*meshUpdateInterval)) {
+		if (updateTriangulation || (meshUpdateInterval>0 && ellapsedIter>(0.5*meshUpdateInterval))) {
 			if (useSolver==0) LOG_ERROR("background calculations not available for Gauss-Seidel");
 			if (fluidBulkModulus>0 || doInterpolate) solver->interpolate (solver->T[solver->currentTes], backgroundSolver->T[backgroundSolver->currentTes]);
 			solver=backgroundSolver;
@@ -335,12 +335,12 @@ void PeriodicFlowEngine::locateCell ( CellHandle baseCell, unsigned int& index, 
 	Vector3i period;
 
 	if (baseCell->info().fictious()==0)
-		for ( int k=0;k<4;k++ ) center+= 0.25*makeVector3r (baseCell->vertex(k)->point());
+		for ( int k=0;k<4;k++ ) center+= 0.25*makeVector3r (baseCell->vertex(k)->point().point());
 	else {
 		
 		Real boundPos=0; int coord=0;
 		for ( int k=0;k<4;k++ ) {
-			if ( !baseCell->vertex ( k )->info().isFictious ) center+= 0.3333333333*makeVector3r ( baseCell->vertex ( k )->point() );
+			if ( !baseCell->vertex ( k )->info().isFictious ) center+= 0.3333333333*makeVector3r ( baseCell->vertex ( k )->point().point() );
 			else {
 				coord=flow.boundary ( baseCell->vertex ( k )->info().id() ).coordinate;
 				boundPos=flow.boundary ( baseCell->vertex ( k )->info().id() ).p[coord];}
@@ -354,9 +354,7 @@ void PeriodicFlowEngine::locateCell ( CellHandle baseCell, unsigned int& index, 
 			baseInfo.isGhost=false;
 			return;
 		}
-		CellHandle ch= Tri.locate ( CGT::Point ( wdCenter[0],wdCenter[1],wdCenter[2] )
-// 					     ,/*hint*/ v0
-					     );
+		CellHandle ch= Tri.locate ( CGT::Sphere ( wdCenter[0],wdCenter[1],wdCenter[2] ) );
 		baseInfo.period[0]=period[0];
 		baseInfo.period[1]=period[1];
 		baseInfo.period[2]=period[2];

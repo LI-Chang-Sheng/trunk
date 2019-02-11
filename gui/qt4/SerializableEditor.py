@@ -390,7 +390,8 @@ class SerializableEditor(QFrame):
 		logging.debug('Got type "%s" from :yattrtype:'%cxxT)
 		def vecTest(T,cxxT):
 			#regexp=r'^\s*(std\s*::)?\s*vector\s*<\s*(std\s*::)?\s*('+T+r')\s*>\s*$'
-			regexp=r'^\s*(std\s*::)?\s*vector\s*<\s*(shared_ptr\s*<\s*)?\s*(std\s*::)?\s*('+T+r')(\s*>)?\s*>\s*$'
+			#regexp=r'^\s*(std\s*::)?\s*vector\s*<\s*(shared_ptr\s*<\s*)?\s*(std\s*::)?\s*('+T+r')(\s*>)?\s*>\s*$'
+			regexp=r'^\s*(std\s*::)?\s*vector\s*<\s*(\s*(boost\s*::)?\s*shared_ptr\s*<\s*)?\s*(std\s*::)?\s*('+T+r')(\s*>)?\s*>\s*$'
 			m=re.match(regexp,cxxT)
 			return m
 		vecMap={

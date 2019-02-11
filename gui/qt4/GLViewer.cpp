@@ -352,7 +352,7 @@ void GLViewer::centerScene(){
 	if(not(rb->bound)){ rb->updateBound();}
 	
 	min=rb->bound->min; max=rb->bound->max;
-	bool hasNan=(isnan(min[0])||isnan(min[1])||isnan(min[2])||isnan(max[0])||isnan(max[1])||isnan(max[2]));
+	bool hasNan=(std::isnan(min[0])||std::isnan(min[1])||std::isnan(min[2])||std::isnan(max[0])||std::isnan(max[1])||std::isnan(max[2]));
 	Real minDim=std::min(max[0]-min[0],std::min(max[1]-min[1],max[2]-min[2]));
 	if(minDim<=0 || hasNan){
 		// Aabb is not yet calculated...
@@ -364,7 +364,7 @@ void GLViewer::centerScene(){
 			max=max.cwiseMax(b->state->pos);
 			min=min.cwiseMin(b->state->pos);
 		}
-		if(isinf(min[0])||isinf(min[1])||isinf(min[2])||isinf(max[0])||isinf(max[1])||isinf(max[2])){ LOG_DEBUG("No min/max computed from bodies either, setting cube (-1,-1,-1)×(1,1,1)"); min=-Vector3r::Ones(); max=Vector3r::Ones(); }
+		if(std::isinf(min[0])||std::isinf(min[1])||std::isinf(min[2])||std::isinf(max[0])||std::isinf(max[1])||std::isinf(max[2])){ LOG_DEBUG("No min/max computed from bodies either, setting cube (-1,-1,-1)×(1,1,1)"); min=-Vector3r::Ones(); max=Vector3r::Ones(); }
 	} else {LOG_DEBUG("Using scene's Aabb");}
 
 	LOG_DEBUG("Got scene box min="<<min<<" and max="<<max);
@@ -384,12 +384,11 @@ void GLViewer::postSelection(const QPoint& point)
 	LOG_DEBUG("Selection is "<<selectedName());
 	int selection = selectedName();
 	if(selection<0){
+		Omega::instance().getScene()->selectedBody = -1;
 		if (last>=0) {
-			Body::byId(Body::id_t(last))->state->blockedDOFs=initBlocked; last=-1; Omega::instance().getScene()->selectedBody = -1;}
+			Body::byId(Body::id_t(last))->state->blockedDOFs=initBlocked; last=-1;}
 		if(isMoving){
-			displayMessage("Moving finished"); mouseMovesCamera(); isMoving=false;
-			Omega::instance().getScene()->selectedBody = -1;
-		}
+			displayMessage("Moving finished"); mouseMovesCamera(); isMoving=false;}
 		return;
 	}
 	if(selection>=0 && (*(Omega::instance().getScene()->bodies)).exists(selection)){
@@ -397,7 +396,7 @@ void GLViewer::postSelection(const QPoint& point)
 		if (last>=0) {Body::byId(Body::id_t(last))->state->blockedDOFs=initBlocked; last=-1;}
 		if(Body::byId(Body::id_t(selection))->isClumpMember()){ // select clump (invisible) instead of its member
 			LOG_DEBUG("Clump member #"<<selection<<" selected, selecting clump instead.");
-			selection=Body::byId(Body::id_t(selection))->clumpId;			
+			selection=Body::byId(Body::id_t(selection))->clumpId;
 		}
 		
 		setSelectedName(selection);

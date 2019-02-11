@@ -11,6 +11,35 @@
 namespace CGT {
 	
 //Since template inheritance does not automatically give access to the members of the base class, this macro can be used to declare all members at once. 
+#ifdef ALPHASHAPES
+
+#define DECLARE_TESSELATION_TYPES(baseType)\
+		typedef typename baseType::RTriangulation		 	RTriangulation;\
+		typedef typename baseType::AlphaShape		 		AlphaShape;\
+		typedef typename baseType::VertexInfo				VertexInfo;\
+		typedef typename baseType::CellInfo				CellInfo;\
+		typedef typename baseType::VertexIterator			VertexIterator;\
+		typedef typename baseType::VertexHandle				VertexHandle;\
+		typedef typename baseType::FiniteVerticesIterator		FiniteVerticesIterator;\
+		typedef typename baseType::CellIterator				CellIterator;\
+		typedef typename baseType::FiniteCellsIterator			FiniteCellsIterator;\
+		typedef typename baseType::CellCirculator			CellCirculator;\
+		typedef typename baseType::CellHandle				CellHandle;\
+		typedef typename baseType::Facet				Facet;\
+		typedef typename baseType::FacetIterator			FacetIterator;\
+		typedef typename baseType::FacetCirculator			FacetCirculator;\
+		typedef typename baseType::FiniteFacetsIterator			FiniteFacetsIterator;\
+		typedef typename baseType::LocateType				LocateType;\
+		typedef typename baseType::EdgeIterator				EdgeIterator;\
+		typedef typename RTriangulation::Edge				Edge;\
+		typedef typename baseType::FiniteEdgesIterator			FiniteEdgesIterator;\
+		typedef typename baseType::VectorVertex				VectorVertex;\
+		typedef typename baseType::VectorCell				VectorCell;\
+		typedef typename baseType::ListPoint				ListPoint;\
+		typedef typename baseType::VCellIterator			VCellIterator;
+
+#else
+
 #define DECLARE_TESSELATION_TYPES(baseType)\
 		typedef typename baseType::RTriangulation		 	RTriangulation;\
 		typedef typename baseType::VertexInfo				VertexInfo;\
@@ -34,6 +63,8 @@ namespace CGT {
 		typedef typename baseType::ListPoint				ListPoint;\
 		typedef typename baseType::VCellIterator			VCellIterator;
 
+#endif
+
 // Classe Tesselation, contient les fonctions permettant de calculer la Tessalisation
 // d'une RTriangulation et de stocker les centres dans chacune de ses cellules
 
@@ -43,6 +74,9 @@ class _Tesselation
 {
 public:
 	typedef typename TT::RTriangulation							RTriangulation;
+#ifdef ALPHASHAPES
+	typedef typename TT::AlphaShape						 		AlphaShape;
+#endif
 	typedef typename TT::Vertex_Info							VertexInfo;
 	typedef typename TT::Cell_Info								CellInfo;
 	typedef typename RTriangulation::Vertex_iterator		 			VertexIterator;
@@ -58,6 +92,7 @@ public:
 	typedef typename RTriangulation::Finite_facets_iterator					FiniteFacetsIterator;
 	typedef typename RTriangulation::Locate_type						LocateType;
 	typedef typename RTriangulation::Edge_iterator						EdgeIterator;
+	typedef typename RTriangulation::Edge							Edge;
 	typedef typename RTriangulation::Finite_edges_iterator					FiniteEdgesIterator;	
 	
 	typedef std::vector<VertexHandle>							VectorVertex;
@@ -95,7 +130,12 @@ public:
 	int Max_id (void) {return maxId;}
 	
 	void	compute ();	//Calcule le centres de Voronoi pour chaque cellule
-	void	Invalidate () {computed=false;}  //Set the tesselation as "not computed" (computed=false), this will launch 						//tesselation internaly when using functions like computeVolumes())
+	Point   setCircumCenter (const CellHandle& cell, bool force=0); 
+        Point	circumCenter (const Sphere& S0, const Sphere& S1, const Sphere& S2, const Sphere& S3);
+	Point	circumCenter (const CellHandle& cell);
+        Point	circumCenter (const CellHandle& cell, const short facet, const double wExt, bool& violate, Sphere& SAlpha, CVector& normal);
+        Point	circumCenter (const CellHandle& cell, const short facet, const Sphere& sExt, bool& violate);
+	void	Invalidate () {computed=false;}  //Set the tesselation as "not computed" (computed=false), this will launch tesselation internaly when using functions like computeVolumes())
 	// N.B : compute() must be executed before the functions below are used
 	void	Clear(void);
 
@@ -111,6 +151,17 @@ public:
 	inline Real&	Volume (unsigned int id) { return vertexHandles[id]->info().v(); }
 	inline const VertexHandle&	vertex (unsigned int id) const { return vertexHandles[id]; }
 
+	// Alpha Shapes
+	void testAlphaShape(double alpha=0);
+	struct AlphaFace {unsigned int ids[3]; CVector normal;};
+        struct AlphaCap {unsigned int id; CVector normal;};
+	void setAlphaFaces(std::vector<AlphaFace>& faces, double alpha=0);
+        void setExtendedAlphaCaps(std::vector<AlphaCap>& caps, double alpha, double shrinkedAlpha, bool fixedAlpha);
+        std::vector<Vector3r> getExtendedAlphaGraph(double alpha, double shrinkedAlpha, bool fixedAlpha);
+	CVector alphaVoronoiFaceArea (const Edge& ed_it, const AlphaShape& as, const RTriangulation& Tri);
+        CVector alphaVoronoiPartialCapArea (const Edge& ed_it, const AlphaShape& as,std::vector<Vector3r>& vEdges);
+        CVector alphaVoronoiPartialCapArea (Facet facet, const AlphaShape& as, double shrinkedAlpha, std::vector<Vector3r>& vEdges);
+	std::vector<int> getAlphaVertices(double alpha=0);
 	
 // 	FiniteCellsIterator finite_cells_begin(void);// {return Tri->finite_cells_begin();}
 // 	FiniteCellsIterator finiteCellsEnd(void);// {return Tri->finite_cells_end();}

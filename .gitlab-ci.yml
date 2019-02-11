@@ -1,0 +1,73 @@
+image: registry.gitlab.com/remche/docker-yade
+stages:
+  - cmake
+  - build
+  - test
+  - doc
+
+cmake:
+  stage: cmake
+  only:
+    - master
+    - merge_request
+  script:
+    - mkdir build && cd build
+    - cmake -DSUFFIX=-ci -DCMAKE_VERBOSE_MAKEFILE=ON -DCMAKE_INSTALL_PREFIX=../install -DDISABLE_SAVE_TEMPS=1 ..
+  artifacts:
+    paths:
+      - build
+      
+make:
+  stage: build
+  only:
+    - master
+    - merge_request
+  script:
+    - cd build
+    - make -j 12
+    - make install
+    - make clean
+  artifacts:
+    paths:
+      - install
+  dependencies: 
+    - cmake      
+
+test:
+  stage: test
+  only:
+    - master
+    - merge_request
+  script:
+    - install/bin/yade-ci --test
+  dependencies:
+    - make
+
+check:
+  stage: test
+  only:
+    - master
+    - merge_request
+  script:
+    - install/bin/yade-ci --checks
+  dependencies:
+    - make
+
+pages:
+  stage: doc
+  only:
+    - master
+    - merge_request
+  script:
+    - cd build
+    - xvfb-run -s "-screen 0 1600x1200x24" make doc
+    - mv ../install/share/doc/yade-ci/html ../public
+    - mv ../install/share/doc/yade-ci/Yade.pdf ../public
+    - mv ../install/share/doc/yade-ci/Yade.epub ../public
+  dependencies:
+    - cmake
+    - make
+  artifacts:
+    paths:
+      - public
+

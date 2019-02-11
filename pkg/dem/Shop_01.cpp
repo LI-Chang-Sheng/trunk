@@ -48,63 +48,34 @@
 
 CREATE_LOGGER(Shop);
 
-/*! Flip periodic cell by given number of cells.
-
-Still broken, some interactions are missed. Should be checked.
-*/
-
+/*! Flip periodic cell for shearing indefinitely.*/
 Matrix3r Shop::flipCell(const Matrix3r& _flip){
-	Scene* scene=Omega::instance().getScene().get(); const shared_ptr<Cell>& cell(scene->cell); const Matrix3r& trsf(cell->trsf);
-	Vector3r size=cell->getSize();
-	Matrix3r flip;
+	Scene* scene=Omega::instance().getScene().get(); const shared_ptr<Cell>& cell(scene->cell);
+	Matrix3r& hSize = cell->hSize;
+	Matrix3i flip;
 	if(_flip==Matrix3r::Zero()){
 		bool hasNonzero=false;
 		for(int i=0; i<3; i++) for(int j=0; j<3; j++) {
 			if(i==j){ flip(i,j)=0; continue; }
-			flip(i,j)=-floor(.5+trsf(i,j)/(size[j]/size[i]));
+			flip(i,j)=-floor(hSize.col(j).dot(hSize.col(i))/hSize.col(i).dot(hSize.col(i)));
 			if(flip(i,j)!=0) hasNonzero=true;
 		}
 		if(!hasNonzero) {LOG_TRACE("No flip necessary."); return Matrix3r::Zero();}
-		LOG_DEBUG("Computed flip matrix: upper "<<flip(0,1)<<","<<flip(0,2)<<","<<flip(1,2)<<"; lower "<<flip(1,0)<<","<<flip(2,0)<<","<<flip(2,1));
 	} else {
-		flip=_flip;
+		if (_flip.determinant()!=1) LOG_WARN("Flipping cell needs det(Id+flip)=1, check your input.");
+		flip=_flip.cast<int>();
 	}
-
-	// current cell coords of bodies
-	vector<Vector3i > oldCells; oldCells.resize(scene->bodies->size());
-	FOREACH(const shared_ptr<Body>& b, *scene->bodies){
-		if(!b) continue; cell->wrapShearedPt(b->state->pos,oldCells[b->getId()]);
-	}
-
-	// change cell trsf here
-	Matrix3r trsfInc;
-	for(int i=0; i<3; i++) for(int j=0; j<3; j++){
-		if(i==j) { if(flip(i,j)!=0) LOG_WARN("Non-zero diagonal term at ["<<i<<","<<j<<"] is meaningless and will be ignored."); trsfInc(i,j)=0; continue; }
-		// make sure non-diagonal entries are "integers"
-		if(flip(i,j)!=double(int(flip(i,j)))) LOG_WARN("Flip matrix entry "<<flip(i,j)<<" at ["<<i<<","<<j<<"] not integer?! (will be rounded)");
-		trsfInc(i,j)=int(flip(i,j))*size[j]/size[i];
-	}
-	cell->trsf+=trsfInc;
+	cell->hSize+=cell->hSize*flip.cast<Real>();
 	cell->postLoad(*cell);
 
-	// new cell coords of bodies
-	vector<Vector3i > newCells; newCells.resize(scene->bodies->size());
-	FOREACH(const shared_ptr<Body>& b, *scene->bodies){
-		if(!b) continue;
-		cell->wrapShearedPt(b->state->pos,newCells[b->getId()]);
-	}
-
-	// remove all potential interactions
-	scene->interactions->eraseNonReal();
-	// adjust Interaction::cellDist for real interactions;
-	FOREACH(const shared_ptr<Interaction>& i, *scene->interactions){
-		Body::id_t id1=i->getId1(),id2=i->getId2();
-		// this must be the same for both old and new interaction: cell2-cell1+cellDist
-		// c₂-c₁+c₁₂=k; c'₂+c₁'+c₁₂'=k   (new cell coords have ')
-		// c₁₂'=(c₂-c₁+c₁₂)-(c₂'-c₁')
-		i->cellDist=(oldCells[id2]-oldCells[id1]+i->cellDist)-(newCells[id2]-newCells[id1]);
-	}
-
+	// adjust Interaction::cellDist for interactions;
+	// adjunct matrix of (Id + flip) is the inverse since det=1, below is the transposed co-factor matrix of (Id+flip).
+	// note that Matrix3::adjoint is not the adjunct, hence the in-place adjunct below
+	Matrix3i invFlip;
+	invFlip << 1-flip(2,1)*flip(1,2), flip(2,1)*flip(0,2)-flip(0,1), flip(0,1)*flip(1,2)-flip(0,2),
+			    flip(1,2)*flip(2,0)-flip(1,0), 1-flip(0,2)*flip(2,0), flip(0,2)*flip(1,0)-flip(1,2),
+			    flip(1,0)*flip(2,1)-flip(2,0), flip(2,0)*flip(0,1)-flip(2,1), 1-flip(1,0)*flip(0,1);
+	FOREACH(const shared_ptr<Interaction>& i, *scene->interactions) i->cellDist = invFlip*i->cellDist;
 
 	// force reinitialization of the collider
 	bool colliderFound=false;
@@ -113,7 +84,7 @@ Matrix3r Shop::flipCell(const Matrix3r& _flip){
 		if(c){ colliderFound=true; c->invalidatePersistentData(); }
 	}
 	if(!colliderFound) LOG_WARN("No collider found while flipping cell; continuing simulation might give garbage results.");
-	return flip;
+	return flip.cast<Real>();
 }
 
 /* Apply force on contact point to 2 bodies; the force is oriented as it applies on the first body and is reversed on the second.
@@ -183,7 +154,7 @@ Real Shop::kineticEnergy(Scene* _scene, Body::id_t* maxId){
 	Real maxE=0; if(maxId) *maxId=Body::ID_NONE;
 	Vector3r spin = scene->cell->getSpin();
 	FOREACH(const shared_ptr<Body>& b, *scene->bodies){
-		if(!b || !b->isDynamic()) continue;
+		if(!b || !b->isDynamic() || b->isClumpMember()) continue;
 		const State* state(b->state.get());
 		// ½(mv²+ωIω)
 		Real E=0;
@@ -305,7 +276,7 @@ Real Shop::getSpheresVolume(const shared_ptr<Scene>& _scene, int mask){
 	const shared_ptr<Scene> scene=(_scene?_scene:Omega::instance().getScene());
 	Real vol=0;
 	FOREACH(shared_ptr<Body> b, *scene->bodies){
-		if (!b || !b->isDynamic()) continue;
+		if (!b) continue;
 		Sphere* s=dynamic_cast<Sphere*>(b->shape.get());
 		if((!s) or ((mask>0) and ((b->groupMask & mask)==0))) continue;
 		vol += (4/3.)*Mathr::PI*pow(s->radius,3);
@@ -317,7 +288,7 @@ Real Shop::getSpheresMass(const shared_ptr<Scene>& _scene, int mask){
 	const shared_ptr<Scene> scene=(_scene?_scene:Omega::instance().getScene());
 	Real mass=0;
 	FOREACH(shared_ptr<Body> b, *scene->bodies){
-		if (!b || !b->isDynamic()) continue;
+		if (!b) continue;
 		Sphere* s=dynamic_cast<Sphere*>(b->shape.get());
 		if((!s) or ((mask>0) and ((b->groupMask & mask)==0))) continue;
 		mass += b->state->mass;
@@ -338,6 +309,24 @@ Real Shop::getPorosity(const shared_ptr<Scene>& _scene, Real _volume){
 	} else {
 		V=scene->cell->getVolume();
 	}
+	Real Vs=Shop::getSpheresVolume();
+	return (V-Vs)/V;
+}
+
+Real Shop::getPorosityAlt(){
+	Real V;
+	Real inf=std::numeric_limits<Real>::infinity();
+	Vector3r minimum(inf,inf,inf),maximum(-inf,-inf,-inf);
+	FOREACH(const shared_ptr<Body>& b, *Omega::instance().getScene()->bodies){
+		shared_ptr<Sphere> s=YADE_PTR_DYN_CAST<Sphere>(b->shape); if(!s) continue;
+		Vector3r rrr(s->radius,s->radius,s->radius);
+		minimum=minimum.cwiseMin(b->state->pos-(rrr));
+		maximum=maximum.cwiseMax(b->state->pos+(rrr));
+	}
+	//Vector3r dim=maximum-minimum; // Note by Janek: warning: variable ‘dim’ set but not used [-Wunused-but-set-variable]
+	// Vector3r sup = Vector3r(minimum+.5*cutoff*dim);
+	//Vector3r inf = Vector3r(maximum-.5*cutoff*dim);
+	V = (maximum[0] - minimum[0])*(maximum[1] - minimum[1])*(maximum[2] - minimum[2]);
 	Real Vs=Shop::getSpheresVolume();
 	return (V-Vs)/V;
 }

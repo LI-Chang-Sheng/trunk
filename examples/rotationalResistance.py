@@ -3,7 +3,7 @@
 from yade import utils, plot
 o = Omega()
 fr = 0.5;rho=2000
-tc = 0.001; en = 0.7; et = 0.7; o.dt = 0.0002*tc
+tc = 0.001; en = 0.7; et = 0.7; o.dt = 0.0001*tc
 
 r = 0.002
 

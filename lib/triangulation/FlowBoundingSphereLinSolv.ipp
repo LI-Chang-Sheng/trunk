@@ -9,7 +9,9 @@
 
 // #define XVIEW
 #include "FlowBoundingSphereLinSolv.hpp"//include after #define XVIEW
-#include "CGAL/constructions/constructions_on_weighted_points_cartesian_3.h"
+#if CGAL_VERSION_NR < CGAL_VERSION_NUMBER(4,11,0)
+	#include "CGAL/constructions/constructions_on_weighted_points_cartesian_3.h"
+#endif
 #include <CGAL/Width_3.h>
 #include <iostream>
 #include <fstream>
@@ -31,7 +33,7 @@
 
 // #define PARDISO //comment this if pardiso lib is not available
 
-#ifdef EIGENSPARSE_LIB
+#ifdef CHOLMOD_LIBS
 extern "C" { void openblas_set_num_threads(int num_threads); }
 #endif
 
@@ -63,6 +65,20 @@ FlowBoundingSphereLinSolv<_Tesselation,FlowType>::~FlowBoundingSphereLinSolv()
 	#ifdef TAUCS_LIB
 	if (Fccs) taucs_ccs_free(Fccs);
 	#endif
+	#ifdef SUITESPARSE_VERSION_4
+	if (useSolver == 4){
+		if (getCHOLMODPerfTimings) gettimeofday (&start, NULL);
+		cholmod_l_free_sparse(&Achol, &com);
+		cholmod_l_free_factor(&L, &com);
+		cholmod_l_free_factor(&M, &com);
+		cholmod_l_free_triplet(&cholT, &com);
+		cholmod_l_finish(&com);
+		if (getCHOLMODPerfTimings){
+			gettimeofday (&end, NULL);
+			cout << "CHOLMOD Time to finalize multithreaded com " << ((end.tv_sec *1000000   + end.tv_usec ) - (start.tv_sec * 1000000 + start.tv_usec )) << endl;
+		}
+	}
+	#endif
 }
 template<class _Tesselation, class FlowType>
 FlowBoundingSphereLinSolv<_Tesselation,FlowType>::FlowBoundingSphereLinSolv(): FlowType() {
@@ -80,11 +96,22 @@ FlowBoundingSphereLinSolv<_Tesselation,FlowType>::FlowBoundingSphereLinSolv(): F
 	pardisoInitialized=false;
 	pTimeInt=0;pTime1N=0;pTime2N=0;
 	pTime1=0;pTime2=0;
-	#ifdef EIGENSPARSE_LIB
+	#ifdef CHOLMOD_LIBS
 	factorizedEigenSolver=false;
 	numFactorizeThreads=1;
 	numSolveThreads=1;
 	#endif
+	#ifdef SUITESPARSE_VERSION_4
+	cholmod_l_start(&com);
+	factorExists=false;
+	com.nmethods= 1; // nOrderingMethods; //1;
+	com.method[0].ordering = CHOLMOD_METIS; // orderingMethod; //CHOLMOD_METIS;
+		#if (CHOLMOD_GPU == 1)
+		if (multithread) com.maxGpuMemFraction=0.4; //using (less than) half of the available memory for each solver		
+		#endif
+	com.supernodal = CHOLMOD_AUTO; //CHOLMOD_SUPERNODAL;
+	#endif
+	reuseOrdering=false;
 }
 
 
@@ -125,7 +152,7 @@ void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::resetLinearSystem() {
 	if (F) taucs_supernodal_factor_free(F); F=NULL;
 	if (Fccs) taucs_ccs_free(Fccs); Fccs=NULL;
 #endif
-#ifdef EIGENSPARSE_LIB
+#ifdef CHOLMOD_LIBS
 	factorizedEigenSolver=false;
 #endif
 #ifdef PARDISO
@@ -142,6 +169,29 @@ void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::resetLinearSystem() {
 template<class _Tesselation, class FlowType>
 int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::setLinearSystem(Real dt)
 {
+	#ifdef SUITESPARSE_VERSION_4
+	if (!multithread && factorExists && useSolver==4){
+		if (getCHOLMODPerfTimings) gettimeofday (&start, NULL);	
+		cholmod_l_free_sparse(&Achol, &com);
+		cholmod_l_free_triplet(&cholT, &com);
+		if (!reuseOrdering) {
+			cholmod_l_free_factor(&L, &com);
+			cholmod_l_free_factor(&M, &com);
+			cholmod_l_finish(&com);
+			if (getCHOLMODPerfTimings){
+				gettimeofday (&end, NULL);
+				cout << "CHOLMOD Time to finalize singlethreaded com " << ((end.tv_sec *1000000   + end.tv_usec ) - (start.tv_sec * 1000000 + start.tv_usec )) << endl;
+			}
+			cholmod_l_start(&com);
+		}
+		com.nmethods= 1; // nOrderingMethods; //1;
+		com.method[0].ordering = CHOLMOD_METIS; // orderingMethod; //CHOLMOD_METIS;
+		factorExists=false;	
+
+	}
+	#endif
+
+	if (getCHOLMODPerfTimings) gettimeofday (&start, NULL);
 
 	RTriangulation& Tri = T[currentTes].Triangulation();
 	int n_cells=Tri.number_of_finite_cells();
@@ -160,7 +210,6 @@ int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::setLinearSystem(Real dt)
 			if (!cell->info().Pcondition && !cell->info().blocked) ++ncols;}
 //		//Segfault on 14.10, and useless overall since SuiteSparse has preconditionners (including metis)
 // 		spatial_sort(orderedCells.begin(),orderedCells.end(), CellTraits_for_spatial_sort<RTriangulation>());
-
 		T_cells.clear();
 		T_index=0;
 		isLinearSystemSet=false;
@@ -178,8 +227,8 @@ int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::setLinearSystem(Real dt)
 		T_b.resize(ncols);
 		T_bv.resize(ncols);
 		bodv.resize(ncols);
-		xodv.resize(ncols);
-// 		gsB.resize(ncols+1);
+		xodv.resize(ncols);		
+		//gsB.resize(ncols+1);
 		T_cells.resize(ncols+1);
 		T_nnz=0;}
 	for (int kk=0; kk<ncols;kk++) T_b[kk]=0;
@@ -227,6 +276,11 @@ int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::setLinearSystem(Real dt)
 			}
 		}
 	}
+
+	if (getCHOLMODPerfTimings){
+		gettimeofday (&end, NULL);
+		cout << "CHOLMOD Time to build linear equations " << ((end.tv_sec *1000000   + end.tv_usec ) - (start.tv_sec * 1000000 + start.tv_usec )) << endl;
+	}
 	updatedRHS = true;
 	if (!isLinearSystemSet) {
 		if (useSolver==1 || useSolver==2){
@@ -270,16 +324,28 @@ int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::setLinearSystem(Real dt)
 	// 			cerr<<"i="<< i <<" j="<< j<<" v="<<vs[k]<<" clen[j]="<<clen[j]-1<<endl;
 			}
 		#endif //TAUCS_LIB
-		#ifdef EIGENSPARSE_LIB
+		#ifdef CHOLMOD_LIBS
 		} else if (useSolver==3){
 			tripletList.clear(); tripletList.resize(T_nnz);
-			for(int k=0;k<T_nnz;k++) {
-// 				if (is[k]<js[k]) cerr<<"not the good relation"<<endl;
-// 				else cerr<< "comp " <<is[k]-1<<" "<<js[k]-1<<" "<<vs[k]<<endl;
-				tripletList[k]=ETriplet(is[k]-1,js[k]-1,vs[k]);
-			}
-			A.resize(ncols,ncols);
+			for(int k=0;k<T_nnz;k++) tripletList[k]=ETriplet(is[k]-1,js[k]-1,vs[k]);
+ 			A.resize(ncols,ncols);
 			A.setFromTriplets(tripletList.begin(), tripletList.end());
+		#endif
+		#ifdef SUITESPARSE_VERSION_4
+		}else if (useSolver==4){
+			if (getCHOLMODPerfTimings) gettimeofday (&start, NULL);
+			cholT = cholmod_l_allocate_triplet(ncols,ncols, T_nnz, 1, CHOLMOD_REAL, &com);		
+			// set all the values for the cholmod triplet matrix
+			for(int k=0;k<T_nnz;k++){
+				add_T_entry(cholT,is[k]-1, js[k]-1, vs[k]);
+			}
+			Achol = cholmod_l_triplet_to_sparse(cholT, cholT->nnz, &com);
+			//cholmod_l_free_triplet(&T, &com);
+			if (getCHOLMODPerfTimings){
+				cholmod_l_print_sparse(Achol, "Achol", &com);
+				gettimeofday (&end, NULL);
+				cout << "CHOLMOD Time to allocate matrix " << ((end.tv_sec *1000000   + end.tv_usec ) - (start.tv_sec * 1000000 + start.tv_usec )) << endl;
+			}
 		#endif
 		}
 		isLinearSystemSet=true;
@@ -301,11 +367,17 @@ void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::copyCellsToGs (Real dt)
 }
 
 template<class _Tesselation, class FlowType>
-void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::copyLinToCells() {for (int ii=1; ii<=ncols; ii++) T_cells[ii]->info().p()=T_x[ii-1];}
+void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::copyLinToCells() {
+	for (int ii=1; ii<=ncols; ii++){ 
+		T_cells[ii]->info().p()=T_x[ii-1];
+	}
+
+}
 
 template<class _Tesselation, class FlowType>
 void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::copyCellsToLin (Real dt)
 {
+		
 	for (int ii=1; ii<=ncols; ii++) {
 		T_bv[ii-1]=T_b[ii-1]-T_cells[ii]->info().dv();
 		if (fluidBulkModulus>0) T_bv[ii-1] += T_cells[ii]->info().p()/(fluidBulkModulus*dt*T_cells[ii]->info().invVoidVolume());}
@@ -514,7 +586,7 @@ void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::sortV(int k1, int k2, int
 template<class _Tesselation, class FlowType>
 int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::eigenSolve(Real dt)
 {
-#ifdef EIGENSPARSE_LIB
+#ifdef CHOLMOD_LIBS
 	if (!isLinearSystemSet || (isLinearSystemSet && reApplyBoundaryConditions()) || !updatedRHS) ncols = setLinearSystem(dt);
 	copyCellsToLin(dt);
 	//FIXME: we introduce new Eigen vectors, then we have to copy from/to c-arrays, can be optimized later
@@ -526,22 +598,132 @@ int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::eigenSolve(Real dt)
 		eSolver.compute(A);
 		//Check result
 		if (eSolver.cholmod().status>0) {
-			cerr << "something went wrong in Cholesky factorization, use LDLt as fallback this time" << endl;
+			cerr << "something went wrong in Cholesky factorization, use LDLt as fallback this time" << eSolver.cholmod().status << endl;
 			eSolver.setMode(Eigen::CholmodLDLt);
 			eSolver.compute(A);
 		}
 		factorizedEigenSolver = true;
 	}
-	openblas_set_num_threads(numSolveThreads);
-	ex = eSolver.solve(eb);
-	for (int k=0; k<ncols; k++) T_x[k]=ex[k];
-	copyLinToCells();
+	// backgroundAction only wants to factorize, no need to solve and copy to cells.
+	if (!factorizeOnly){
+// 		cerr<<"setting openblas_set_num_threads="<<numSolveThreads<<endl;
+		openblas_set_num_threads(numSolveThreads);
+		ex = eSolver.solve(eb);
+		for (int k=0; k<ncols; k++) T_x[k]=ex[k];
+		copyLinToCells();
+	}
 #else
 	cerr<<"Flow engine not compiled with eigen, nothing computed if useSolver=3"<<endl;
 #endif
 	return 0;
 }
 
+template<class _Tesselation, class FlowType>
+int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::cholmodSolve(Real dt)
+{
+#ifdef SUITESPARSE_VERSION_4
+	if (!isLinearSystemSet || (isLinearSystemSet && reApplyBoundaryConditions()) || !updatedRHS) ncols = setLinearSystem(dt);
+	copyCellsToLin(dt);
+	cholmod_dense* B = cholmod_l_zeros(ncols, 1, Achol->xtype, &com);
+	double* B_x =(double *) B->x;
+	for (int k=0; k<ncols; k++) B_x[k]=T_bv[k];
+	if (!factorizedEigenSolver) {
+		openblas_set_num_threads(numFactorizeThreads);
+		if (getCHOLMODPerfTimings) gettimeofday (&start, NULL);	
+		if (!reuseOrdering) {
+			L = cholmod_l_analyze(Achol, &com);
+			M = cholmod_l_copy_factor(L, &com);
+		} else { 
+			N = cholmod_l_copy_factor(M, &com);
+		}
+		if (getCHOLMODPerfTimings){		
+			gettimeofday(&end,NULL);
+			cout << "Reusing reordering? " << reuseOrdering << ". CHOLMOD Time to Analyze " << ((end.tv_sec * 1000000  + end.tv_usec) - (start.tv_sec * 1000000 + start.tv_usec   )) << endl;
+		}
+		if (getCHOLMODPerfTimings) gettimeofday (&start, NULL);
+		if (!reuseOrdering) {
+			cholmod_l_factorize(Achol, L, &com);
+		} else {
+			cholmod_l_factorize(Achol, N, &com);
+		}
+
+		if (getCHOLMODPerfTimings){		
+			gettimeofday(&end,NULL);
+			cout << "CHOLMOD Time to factorize " << ((end.tv_sec * 1000000  + end.tv_usec) - (start.tv_sec * 1000000 + start.tv_usec   )) << endl;
+		}
+		factorExists = true;
+		factorizedEigenSolver=true;
+	}
+	
+	if (!factorizeOnly){
+		openblas_set_num_threads(numSolveThreads);
+		cholmod_dense* ex = cholmod_l_solve(CHOLMOD_A, L, B, &com);
+		double* e_x =(double *) ex->x;
+		for (int k=0; k<ncols; k++) {
+			T_x[k] = e_x[k];
+		}
+		copyLinToCells();
+		
+		//if (thermalEngine) {
+			//initializeInternalEnergy();
+			//augmentConductivityMatrix(dt);
+			//setNewCellTemps();
+		//}
+		cholmod_l_free_dense(&ex, &com);
+	}
+	cholmod_l_free_dense(&B, &com);
+#else
+	cerr<<"Flow engine not compiled with CHOLMOD, nothing computed if useSolver=4"<<endl;
+#endif
+	return 0;
+}
+
+template<class _Tesselation, class FlowType>
+void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::initializeInternalEnergy() {
+        RTriangulation& Tri = T[currentTes].Triangulation();
+        FiniteCellsIterator cellEnd = Tri.finite_cells_end();
+        for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != cellEnd; cell++){
+		if (!cell->info().isGhost) cell->info().internalEnergy = fluidCp*fluidRho*cell->info().temp()*(1./cell->info().invVoidVolume()); // cell->info().volume(); //FIXME: Need to consider void volume(1./cell->info().invVoidVolume());
+	}
+}
+
+
+template<class _Tesselation, class FlowType>
+void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::augmentConductivityMatrix(Real dt)
+{
+	Real energyFlux; Real upwindTemp; Real facetFlowRate;
+	RTriangulation& Tri = T[currentTes].Triangulation();
+	// cycle through facets instead of cells to avoid duplicate math
+	for (FiniteFacetsIterator f_it=Tri.finite_facets_begin(); f_it != Tri.finite_facets_end();f_it++){
+		const CellHandle& cell = f_it->first;
+		const CellHandle& neighborCell = f_it->first->neighbor(f_it->second);
+		if (cell->info().isGhost || neighborCell->info().isGhost) continue;
+		facetFlowRate = cell->info().kNorm()[f_it->second] * (cell->info().p() - cell->neighbor(f_it->second)->info().p());
+		if (facetFlowRate>0){
+			upwindTemp = cell->info().temp();
+		} else { 
+			upwindTemp = neighborCell->info().temp();
+		}
+		energyFlux = fluidCp*fluidRho*dt*upwindTemp*facetFlowRate;
+		if (!cell->info().Tcondition) cell->info().internalEnergy -= energyFlux;
+		if (!neighborCell->info().Tcondition) neighborCell->info().internalEnergy += energyFlux;
+	}	 
+}
+
+
+template<class _Tesselation, class FlowType>
+void FlowBoundingSphereLinSolv<_Tesselation,FlowType>::setNewCellTemps()
+{
+    RTriangulation& Tri = T[currentTes].Triangulation();
+    FiniteCellsIterator cellEnd = Tri.finite_cells_end();
+    for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != cellEnd; cell++){
+		if (!cell->info().Tcondition && !cell->info().isGhost) {
+            Real oldTemp = cell->info().temp();
+            cell->info().temp()=cell->info().internalEnergy/((1./cell->info().invVoidVolume())*fluidCp*fluidRho); //FIXME: invVoidVolume depends on volumeSolidPore() which uses CGAL points only updated each remesh. We need our own volumeSolidPore(). 
+            cell->info().dtemp() = cell->info().temp() - oldTemp;
+        }
+	}
+}
 
 template<class _Tesselation, class FlowType>
 int FlowBoundingSphereLinSolv<_Tesselation,FlowType>::taucsSolve(Real dt)

@@ -15,7 +15,7 @@ Getting started
 Before you start moving around in Yade, you should have some prior knowledge.
 
 * Basics of command line in your Linux system are necessary for running yade. Look on the web for tutorials.
-* Python language; we recommend the official `Python tutorial <http://docs.python.org/tutorial>`_. Reading further documents on the topis, such as `Dive into Python <http://www.diveintopython.net/>`_ will certainly not hurt either.
+* Python language; we recommend the official `Python tutorial <http://docs.python.org/tutorial>`_. Reading further documents on the topic, such as `Dive into Python <http://www.diveintopython.net/>`_ will certainly not hurt either.
 
 You are advised to try all commands described yourself. Don't be afraid to experiment.
 
@@ -45,7 +45,7 @@ Typically, you will not type Yade commands by hand, but use *scripts*, python pr
 
 	print "Hello world!"
 
-Saving such script as ``hello.py``, it can be given as argument to yade::
+Saving such script as ``hello.py``, it can be given as argument to Yade::
 
 	\$ yade hello.py
 	Welcome to Yade
@@ -109,6 +109,7 @@ Creating simulation
 To create simulation, one can either use a specialized class of type :yref:`FileGenerator` to create full scene, possibly receiving some parameters. Generators are written in c++ and their role is limited to well-defined scenarios. For instance, to create triaxial test scene:
 
 .. ipython::
+	:okexcept:
 
 	In [1]: TriaxialTest(numberOfGrains=200).load()
 
@@ -312,6 +313,7 @@ In each case, return value is :yref:`Body.id` of the body inserted.
 Since till now the simulation was empty, its id is 0 for the first sphere and 1 for the second one. Saving the id value is not necessary, unless you want access this particular body later; it is remembered internally in :yref:`Body` itself. You can address bodies by their id:
 
 .. ipython::
+	:okexcept:
 
 	In [1]: O.bodies[1].state.pos
 	<Body instance at 0x92e8f60>
@@ -322,6 +324,7 @@ Since till now the simulation was empty, its id is 0 for the first sphere and 1 
 Adding the same body twice is, for reasons of the id uniqueness, not allowed:
 
 .. ipython::
+	:okexcept:
 	
 	In [1]: O.bodies.append(s)
 
@@ -359,6 +362,7 @@ Suppose now interactions have been already created. We can access them by the id
 
 
 .. ipython::
+	:okexcept:
 
 	In [1]: O.interactions[0,1]
 	<Interaction instance at 0x93f9528>
@@ -386,6 +390,7 @@ Generalized forces
 Generalized forces include force, torque and forced displacement and rotation; they are stored only temporarliy, during one computation step, and reset to zero afterwards. For reasons of parallel computation, they work as accumulators, i.e. only can be added to, read and reset.
 
 .. ipython::
+	:okexcept:
 
 	Yade [1]: O.forces.f(0)
 
@@ -485,7 +490,7 @@ The next part, reading
 hides 3 internal dispatchers within the :yref:`InteractionLoop` engine; they all operate on interactions and are, for performance reasons, put together:
 
 :yref:`IGeomDispatcher`
-	uses the first set of functors (``Ig2``), which are dispatched based on combination of ``2`` :yref:`Shapes<Shapes>` objects. Dispatched functor resolves exact collision configuration and creates :yref:`IGeom<Interaction::geom>` (whence ``Ig`` in the name) associated with the interaction, if there is collision. The functor might as well fail on approximate interactions, indicating there is no real contact between the bodies, even if they did overlap in the approximate collision detection.
+	uses the first set of functors (``Ig2``), which are dispatched based on combination of ``2`` :yref:`Shapes<Shape>` objects. Dispatched functor resolves exact collision configuration and creates :yref:`IGeom<Interaction::geom>` (whence ``Ig`` in the name) associated with the interaction, if there is collision. The functor might as well fail on approximate interactions, indicating there is no real contact between the bodies, even if they did overlap in the approximate collision detection.
 
 	#. The first functor, :yref:`Ig2_Sphere_Sphere_ScGeom`, is called on interaction of 2 :yref:`Spheres<Sphere>` and creates :yref:`ScGeom` instance, if appropriate.
 
@@ -509,7 +514,7 @@ There is chain of types produced by earlier functors and accepted by later ones;
 .. figure:: fig/dispatch-loop.*
 	:width: 13cm
 
-	Chain of functors producing and accepting certain types. In the case shown, the ``Ig2`` functors produce :yref:`ScfGeom` instances from all handled :yref:`Shape` combinations; the ``Ig2`` functor produces :yref:`FrictMat`. The constitutive law functor ``Law2`` accepts the combination of types produced. Note that the types are stated in the functor's class names.
+	Chain of functors producing and accepting certain types. In the case shown, the ``Ig2`` functors produce :yref:`ScGeom` instances from all handled :yref:`Shape` combinations; the ``Ig2`` functor produces :yref:`FrictMat`. The constitutive law functor ``Law2`` accepts the combination of types produced. Note that the types are stated in the functor's class names.
 
 .. note::
 	When Yade starts, O.engines is filled with a reasonable default list, so that it is not strictly necessary to redefine it when trying simple things. The default scene will handle spheres, boxes, and facets with :yref:`frictional<FrictMat>` properties correctly, and adjusts the timestep dynamically. You can find an example in simple-scene-default-engines.py.

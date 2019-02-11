@@ -40,6 +40,7 @@ The files are
 #include<lib/triangulation/PeriodicFlow.hpp>
 #include<pkg/pfv/FlowEngine.hpp>
 #include<core/Clump.hpp>
+#include<pkg/dem/Shop.hpp>
 
 template<class _CellInfo, class _VertexInfo, class _Tesselation=CGT::_Tesselation<CGT::TriangulationTypes<_VertexInfo,_CellInfo> >, class solverT=DEFAULTSOLVER >
 class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
@@ -67,34 +68,63 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		vector<posData> positionBufferParallel;//keep the positions from a given step for multithread factorization
 		//copy positions in a buffer for faster and/or parallel access
 		virtual void setPositionsBuffer(bool current);
-		virtual void trickPermeability() {};
+		virtual void trickPermeability(Solver* flow) {};
 
 	public :
 		int retriangulationLastIter;
 		enum {wall_xmin, wall_xmax, wall_ymin, wall_ymax, wall_zmin, wall_zmax};
 		Vector3r normal [6];
-		bool currentTes;
+		bool fluxChanged;  // flag that keeps multithreading working when a flux is imposed
 		bool metisForced;
-		int idOffset;
 		double epsVolCumulative;
 		int ReTrg;
 		int ellapsedIter;
+		int permUpdateIters;
 		void initSolver (FlowSolver& flow);
 		#ifdef LINSOLV
 		void setForceMetis (bool force);
 		bool getForceMetis ();
+		void updateLinearSystem (Solver& flow);
 		#endif
 		void triangulate (Solver& flow);
 		void addBoundary (Solver& flow);
 		void buildTriangulation (double pZero, Solver& flow);
 		void buildTriangulation (Solver& flow);
 		void updateVolumes (Solver& flow);
+		void applyForces (Solver& flow);
 		void initializeVolumes (Solver& flow);
 		void boundaryConditions(Solver& flow);
+		void thermalBoundaryConditions(Solver& flow);
+		void remeshForFreshlyBrokenBonds ();
+		void pyInitializeVolumes () {if (solver) initializeVolumes(*solver); else LOG_WARN("Solver not initialized");}
+		void pyUpdateVolumes () {if (solver) updateVolumes(*solver); else LOG_WARN("Solver not initialized");}
+		
 		void updateBCs () {
 			if (solver->tesselation().maxId>0) boundaryConditions(*solver);//avoids crash at iteration 0, when the packing is not bounded yet
 			else LOG_ERROR("updateBCs not applied");
 			solver->pressureChanged=true;}
+			
+		bool checkMaxId(unsigned id) {//used in other functions
+			if (id>=solver->T[solver->currentTes].cellHandles.size()) {
+				LOG_ERROR("id out of range, max value is "<<solver->T[solver->currentTes].cellHandles.size());
+				return false;}
+			return true;}
+			
+		boost::python::list getIncidentCells(unsigned vertexId) {
+			RTriangulation& Tri = solver->tesselation().Triangulation();
+        		FiniteCellsIterator cellEnd = Tri.finite_cells_end();
+			unsigned& id = vertexId;
+			if (vertexId >= solver->tesselation().vertexHandles.size()) LOG_ERROR("vertexId exceeds number of vertices");
+// 			vector<unsigned> incidentCells;
+			boost::python::list incidentCells;
+			vector<CellHandle> tmpCells;
+			tmpCells.resize(10000);
+			typename FlowSolver::VCellIterator cells_it = tmpCells.begin();
+			typename FlowSolver::VCellIterator cells_end = Tri.incident_cells(solver->tesselation().vertexHandles[id],cells_it);
+			for (typename FlowSolver::VCellIterator it = tmpCells.begin(); it != cells_end; it++) incidentCells.append((*it)->info().id);
+			return incidentCells;
+		}
+		
 
 		void imposeFlux(Vector3r pos, Real flux);
 		unsigned int imposePressure(Vector3r pos, Real p);
@@ -165,38 +195,56 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		Real volumeCellTripleFictious (Cellhandle cell);
 		template<class Cellhandle>
 		Real volumeCell (Cellhandle cell);
+		Real surfaceSolidThroatInPore(int cellId, int throatIndex) {return solver->surfaceSolidThroatInPore(solver->T[solver->currentTes].cellHandles[cellId], throatIndex, false, false);}
 		template<class Cellhandle>
 		Vector3r cellBarycenterFromHandle (Cellhandle cell) {return makeVector3r(solver->cellBarycenter(cell));}
 		Vector3r cellBarycenterFromId (unsigned long id) {
-			if (id>=solver->T[solver->currentTes].cellHandles.size()) {LOG_ERROR("id out of range, max value is "<<solver->T[solver->currentTes].cellHandles.size()); return Vector3r(0,0,0);}
-			else return cellBarycenterFromHandle(solver->T[solver->currentTes].cellHandles[id]);}
+			if (not checkMaxId(id)) return Vector3r(0,0,0);
+			return cellBarycenterFromHandle(solver->T[solver->currentTes].cellHandles[id]);}
 		void Oedometer_Boundary_Conditions();
 		void averageRealCellVelocity();
-		void saveVtk(const char* folder) {solver->saveVtk(folder);}
+		void saveVtk(const char* folder, bool withBoundaries) {solver->saveVtk(folder,withBoundaries);}
 		vector<Real> avFlVelOnSph(unsigned int idSph) {return solver->averageFluidVelocityOnSphere(idSph);}
 
 // 		void setBoundaryVel(Vector3r vel) {topBoundaryVelocity=vel; updateTriangulation=true;}
 		void pressureProfile(double wallUpY, double wallDownY) {return solver->measurePressureProfile(wallUpY,wallDownY);}
 		double getPorePressure(Vector3r pos){return solver->getPorePressure(pos[0], pos[1], pos[2]);}
+		double getPoreTemperature(Vector3r pos){return solver->getPoreTemperature(pos[0], pos[1], pos[2]);}
 		int getCell(double posX, double posY, double posZ){return solver->getCell(posX, posY, posZ);}
 		unsigned int nCells(){return solver->T[solver->currentTes].cellHandles.size();}
 		CELL_VECTOR_GETTER(,cellCenter)
 		CELL_VECTOR_GETTER(.averageCellVelocity,cellVelocity)
-		CELL_SCALAR_GETTER(double,.p(),cellPressure)
+		CELL_SCALAR_GETTER(Real,.p(),cellPressure)
+		CELL_SCALAR_GETTER(Real,.temp(),cellTemperature)
 		CELL_SCALAR_SETTER_EXTRA(double,.p(),setCellPressure,solver->resetRHS())
+		CELL_SCALAR_SETTER(double,.temp(),setCellTemperature)
 		CELL_SCALAR_GETTER(bool,.Pcondition,cellPImposed)
+		CELL_SCALAR_GETTER(bool,.Tcondition,cellTImposed)
 		CELL_SCALAR_SETTER_EXTRA(bool,.Pcondition,setCellPImposed,solver->resetLinearSystem())
+		CELL_SCALAR_SETTER(double,.Tcondition,setCellTImposed)
 		boost::python::list getVertices(unsigned int id){
 			boost::python::list ids;
-			if (id>=solver->T[solver->currentTes].cellHandles.size()) {LOG_ERROR("id out of range, max value is "<<solver->T[solver->currentTes].cellHandles.size()); return ids;}
+			if (not checkMaxId(id)) return ids;
 			for (unsigned int i=0;i<4;i++) ids.append(solver->T[solver->currentTes].cellHandles[id]->vertex(i)->info().id());
 			return ids;
 		}
 		void blockCell(unsigned int id, bool blockPressure){
-			if (id>=solver->T[solver->currentTes].cellHandles.size()) {LOG_ERROR("id out of range, max value is "<<solver->T[solver->currentTes].cellHandles.size()); return;}
+			if (not checkMaxId(id)) return;
 			solver->T[solver->currentTes].cellHandles[id]->info().blocked=true;
 			solver->T[solver->currentTes].cellHandles[id]->info().Pcondition=blockPressure;
+		}		
+		Real getDiffusionCoeff(unsigned cellId, unsigned throat){
+			if (not checkMaxId(cellId))  return 0;
+			const CellHandle& cell = solver->tesselation().cellHandles[cellId];
+			Real length = 	sqrt (  (cell->info()
+					- cell->neighbor(throat)->info()).squared_length() );
+			return cell->info().fluidArea(throat) / length;
 		}
+		
+		Vector3r getBoundaryNormal(int index) {
+		  if (index<0 || index>5) LOG_ERROR("index out of range (0-5)"); return normal[max(0,min(5,index))];}
+		void setBoundaryNormal(int index, Vector3r v) {
+		  if (index<0 || index>5) LOG_ERROR("index out of range (0-5)"); normal[max(0,min(5,index))]=v;}
 		
 		double averageSlicePressure(double posY){return solver->averageSlicePressure(posY);}
 		double averagePressure(){return solver->averagePressure();}
@@ -233,8 +281,12 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		YADE_CLASS_PYCLASS_BASE_DOC_ATTRS_DEPREC_INIT_CTOR_PY(TemplateFlowEngine_@TEMPLATE_FLOW_NAME@,@TEMPLATE_FLOW_NAME@,PartialEngine,"A generic engine from wich more specialized engines can inherit. It is defined for the sole purpose of inserting the right data classes CellInfo and VertexInfo in the triangulation, and it should not be used directly. Instead, look for specialized engines, e.g. :yref:`FlowEngine`, :yref:`PeriodicFlowEngine`, or :yref:`DFNFlowEngine`.",
 		((bool,isActivated,true,,"Activates Flow Engine"))
 		((bool,first,true,,"Controls the initialization/update phases"))
+		((int,idOffset,0,,"If the bounding walls of the fluid mesh are not walls of the scene (i.e. are not elements of O.bodies), the offset should be set equal to the size of O.bodies. If the bounding walls are bodies of the scene but are not numbered as 0-5 then offset should be the number of bodies comming before the walls. Set offset<0 to get it set equal to O.bodies.size(), it will also update :yref:`FlowEngine::wallIds`."))
+		((bool,convertClumps,true,,"If true the clumps will be temptatively converted into equivalent spheres in the triangulation, and clump members are skipped. Else clumps are ignored and spherical clump members are triangulated as independent bodies."))
 		((bool,doInterpolate,false,,"Force the interpolation of cell's info while remeshing. By default, interpolation would be done only for compressible fluids. It can be forced with this flag."))
 		((double, fluidBulkModulus, 0.,,"Bulk modulus of fluid (inverse of compressibility) K=-dP*V/dV [Pa]. Flow is compressible if fluidBulkModulus > 0, else incompressible."))
+		((double, fluidRho, 1000.,,"Density of fluid (for thermalEngine)."))
+		((double, fluidCp, 4181.3,,"Heat capacity of fluid (for thermalEngine)."))
 		((Real, dt, 0,,"timestep [s]"))
 		((bool,permeabilityMap,false,,"Enable/disable stocking of average permeability scalar in cell infos."))
 		((bool, slipBoundary, true,, "Controls friction condition on lateral walls"))
@@ -244,10 +296,12 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		((bool, debug, false,,"Activate debug messages"))
 		((double, wallThickness,0,,"Walls thickness"))
 		((double,pZero,0,,"The value used for initializing pore pressure. It is useless for incompressible fluid, but important for compressible model."))
+		((double,tZero,0,,"The value used for initializing pore temperatures in thermalEngine."))
 		((double,tolerance,1e-06,,"Gauss-Seidel tolerance"))
 		((double,relax,1.9,,"Gauss-Seidel relaxation"))
-		((bool, updateTriangulation, 0,,"If true the medium is retriangulated. Can be switched on to force retriangulation after some events (else it will be true periodicaly based on :yref:`FlowEngine::defTolerance` and :yref:`FlowEngine::meshUpdateInterval`. Of course, it costs CPU time."))
-		((int,meshUpdateInterval,1000,,"Maximum number of timesteps between re-triangulation events. See also :yref:`FlowEngine::defTolerance`."))
+		((bool, updateTriangulation, 0,,"If true the medium is retriangulated. Can be switched on to force retriangulation after some events (else it will be true periodicaly based on :yref:`FlowEngine::defTolerance` and :yref:`FlowEngine::meshUpdateInterval`. Of course, it costs CPU time. Note that the new triangulation will start to be effectively used only after one iteration (i.e. O.run(2) gives a result with the new one, O.run(1) does not)."))
+		((int,meshUpdateInterval,1000,,"Maximum number of timesteps between re-triangulation events (a negative value will never re-triangulate). See also :yref:`FlowEngine::defTolerance`."))
+		((int,breakControlledRemesh,0,,"If true, remesh will occur everytime a break occurs in JCFpmPhys. Designed to increase accuracy and efficiency in hydraulic fracture simulations."))
 		((double, epsVolMax, 0,(Attr::readonly),"Maximal absolute volumetric strain computed at each iteration. |yupdate|"))
 		((double, defTolerance,0.05,,"Cumulated deformation threshold for which retriangulation of pore space is performed. If negative, the triangulation update will occure with a fixed frequency on the basis of :yref:`FlowEngine::meshUpdateInterval`"))
 		((double, porosity, 0,(Attr::readonly),"Porosity computed at each retriangulation |yupdate|"))
@@ -255,10 +309,12 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		((bool,clampKValues,true,,"If true, clamp local permeabilities in [minKdivKmean,maxKdivKmean]*globalK. This clamping can avoid singular values in the permeability matrix and may reduce numerical errors in the solve phase. It will also hide junk values if they exist, or bias all values in very heterogeneous problems. So, use this with care."))
 		((Real,minKdivKmean,0.0001,,"define the min K value (see :yref:`FlowEngine::clampKValues`)"))
 		((Real,maxKdivKmean,100,,"define the max K value (see :yref:`FlowEngine::clampKValues`)"))
-		((double,permeabilityFactor,1.0,,"permability multiplier"))
+		((double,permeabilityFactor,1.0,,"Permability multiplier ($m$): $m=1$ (default) attempts to predicty the actual hydraulic conductivity using a Poiseuille equation; $m>0$ multiplies the default values by $m$; $m<0$ defines the conductivity independently of particle size and viscosity as if the material was a homogeneous continuum of conductivity $-m$"))
 		((double,viscosity,1.0,,"viscosity of the fluid"))
+		((double,desiredPorosity,0,,"Correct the cell volumes to reflect this desired porosity (not active by default (0))."))
+		((Real,volumeCorrection,1,,"Volume correction factor (not user controlled. auto computed if :yref:`FlowEngine::desiredPorosity` != 0)"))
 		((double,stiffness, 10000,,"equivalent contact stiffness used in the lubrication model"))
-		((int, useSolver, 0,, "Solver to use 0=G-Seidel, 1=Taucs, 2-Pardiso, 3-CHOLMOD"))
+		((int, useSolver, 0,, "Solver to use. 0:Gauss-Seidel, >0: Cholesky factorization (sparse CHOLMOD), 4: GPU accelerated CHOLMOD (must be combined with :yref:`FlowEngine::multithread`=True)"))
 		((int, xmin,0,(Attr::readonly),"Index of the boundary $x_{min}$. This index is not equal the the id of the corresponding body in general, it may be used to access the corresponding attributes (e.g. flow.bndCondValue[flow.xmin], flow.wallId[flow.xmin],...)."))
 		((int, xmax,1,(Attr::readonly),"See :yref:`FlowEngine::xmin`."))
 		((int, ymin,2,(Attr::readonly),"See :yref:`FlowEngine::xmin`."))
@@ -267,14 +323,14 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		((int, zmax,5,(Attr::readonly),"See :yref:`FlowEngine::xmin`."))
 
 		((vector<bool>, bndCondIsPressure, vector<bool>(6,false),,"defines the type of boundary condition for each side. True if pressure is imposed, False for no-flux. Indexes can be retrieved with :yref:`FlowEngine::xmin` and friends."))
+		((vector<bool>, bndCondIsTemperature, vector<bool>(6,false),,"defines the type of boundary condition for each side. True if temperature is imposed, False for no heat-flux. Indexes can be retrieved with :yref:`FlowEngine::xmin` and friends."))
 		((vector<double>, bndCondValue, vector<double>(6,0),,"Imposed value of a boundary condition. Only applies if the boundary condition is imposed pressure, else the imposed flux is always zero presently (may be generalized to non-zero imposed fluxes in the future)."))
-		//FIXME: to be implemented:
+		((vector<double>, thermalBndCondValue, vector<double>(6,0),,"Imposed temperature value of a boundary condition."))
 		((vector<Vector3r>, boundaryVelocity, vector<Vector3r>(6,Vector3r::Zero()),, "velocity on top boundary, only change it using :yref:`FlowEngine::setBoundaryVel`"))
-		((int, ignoredBody,-1,,"Id of a sphere to exclude from the triangulation.)"))
+		((int, ignoredBody,-1,,"DEPRECATED, USE MASK - Id of a sphere to exclude from the triangulation.)"))
+		((int,mask,0,,"If mask defined, only bodies with corresponding groupMask will be affected by this engine. If 0, all bodies will be affected."))
 		((vector<int>, wallIds,vector<int>(6),,"body ids of the boundaries (default values are ok only if aabbWalls are appended before spheres, i.e. numbered 0,...,5)"))
 		((vector<bool>, boundaryUseMaxMin, vector<bool>(6,true),,"If true (default value) bounding sphere is added as function of max/min sphere coord, if false as function of yade wall position"))
-// 					((bool, display_force, false,,"display the lubrication force applied on particles"))
-// 					((bool, create_file, false,,"create file of velocities"))
 		((bool, viscousShear, false,,"compute viscous shear terms as developped by Donia Marzougui (FIXME: ref.)"))
 		((bool, shearLubrication, false,,"compute shear lubrication force as developped by Brule (FIXME: ref.) "))
 		((bool, pumpTorque, false,,"Compute pump torque applied on particles "))
@@ -285,13 +341,17 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		((bool, viscousNormalBodyStress, false,,"compute normal viscous stress applied on each body"))
 		((bool, viscousShearBodyStress, false,,"compute shear viscous stress applied on each body"))
 		((bool, multithread, false,,"Build triangulation and factorize in the background (multi-thread mode)"))
-		#ifdef EIGENSPARSE_LIB
+		((bool, decoupleForces, false,,"If true, viscous and pressure forces are not imposed on particles. Useful for speeding up simulations in ultra-stiff cohesive materials."))
+		((bool, getCHOLMODPerfTimings, false,,"Print CHOLMOD build, analyze, and factorize timings"))
+		#ifdef CHOLMOD_LIBS
 		((int, numSolveThreads, 1,,"number of openblas threads in the solve phase."))
 		((int, numFactorizeThreads, 1,,"number of openblas threads in the factorization phase"))
 		#endif
 		((vector<Real>, boundaryPressure,vector<Real>(),,"values defining pressure along x-axis for the top surface. See also :yref:`@TEMPLATE_FLOW_NAME@::boundaryXPos`"))
 		((vector<Real>, boundaryXPos,vector<Real>(),,"values of the x-coordinate for which pressure is defined. See also :yref:`@TEMPLATE_FLOW_NAME@::boundaryPressure`"))
 		((string,blockHook,"",,"Python command to be run when remeshing. Anticipated usage: define blocked cells (see also :yref:`TemplateFlowEngine_@TEMPLATE_FLOW_NAME@.blockCell`), or apply exotic types of boundary conditions which need to visit the newly built mesh"))
+		((int, fixTriUpdatePermInt, -1,,"If positive, triangulation is fixed and DFNFlow trickPermeability is run according to the interval. Activating this automatically sets :yref:`FlowEngine::meshUpdateInt` and :yref:`FlowEngine::defTolerance` to -1 (never retriangulate)."))
+		((bool, thermalEngine, false,,"activate thermalEngine within FlowEngine."))
 		,
 		/*deprec*/
 		((meanK_opt,clampKValues,"the name changed"))
@@ -302,12 +362,14 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		normal[wall_ymax].y()=normal[wall_xmax].x()=normal[wall_zmax].z()=-1;
 		solver = shared_ptr<FlowSolver> (new FlowSolver);
 		first=true;
-		epsVolMax=epsVolCumulative=retriangulationLastIter=0;
+		epsVolMax=epsVolCumulative=retriangulationLastIter=permUpdateIters=0;
 		ReTrg=1;
 		backgroundCompleted=true;
 		ellapsedIter=0;
 		metisForced=false;
 		,
+		.def("initializeVolumes",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::pyInitializeVolumes,"initialize pore volumes.")
+		.def("updateVolumes",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::pyUpdateVolumes,"update rates of volume change")
 		.def("imposeFlux",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::imposeFlux,(boost::python::arg("pos"),boost::python::arg("p")),"Impose a flux in cell located  at 'pos' (i.e. add a source term in the flow problem). Outflux positive, influx negative.")
 		.def("imposePressureFromId",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::imposePressureFromId,(boost::python::arg("id"),boost::python::arg("p")),"Impose pressure in cell of index 'id' (after remeshing the same condition will apply for the same location, regardless of what the new cell index is at this location). The index of the condition itself is returned (for multiple imposed pressures at different points).")
 		.def("imposePressure",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::imposePressure,(boost::python::arg("pos"),boost::python::arg("p")),"Impose pressure in cell of location 'pos'. The index of the condition is returned (for multiple imposed pressures at different points).")
@@ -319,8 +381,9 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		.def("getConstrictions",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getConstrictions,(boost::python::arg("all")=true),"Get the list of constriction radii (inscribed circle) for all finite facets (if all==True) or all facets not incident to a virtual bounding sphere (if all==False).  When all facets are returned, negative radii denote facet incident to one or more fictious spheres.")
 		.def("getConstrictionsFull",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getConstrictionsFull,(boost::python::arg("all")=true),"Get the list of constrictions (inscribed circle) for all finite facets (if all==True), or all facets not incident to a fictious bounding sphere (if all==False). When all facets are returned, negative radii denote facet incident to one or more fictious spheres. The constrictions are returned in the format {{cell1,cell2}{rad,nx,ny,nz}}")
 		.def("edgeSize",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::edgeSize,"Return the number of interactions.")
+		.def("surfaceSolidThroatInPore",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::surfaceSolidThroatInPore,(boost::python::arg("cellId"),boost::python::arg("throatIndex")),"returns solid area in the throat (index 0-3), keeping only that part of the throat in cell.")
 		.def("OSI",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::OSI,"Return the number of interactions only between spheres.")
-		.def("saveVtk",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::saveVtk,(boost::python::arg("folder")="./VTK"),"Save pressure field in vtk format. Specify a folder name for output.")
+		.def("saveVtk",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::saveVtk,(boost::python::arg("folder")="./VTK",boost::python::arg("withBoundaries")=false),"Save pressure field in vtk format. Specify a folder name for output. The cells adjacent to the bounding spheres are generated conditionally based on :yref:`withBoundaries` (not compatible with periodic boundaries)")
 		.def("avFlVelOnSph",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::avFlVelOnSph,(boost::python::arg("idSph")),"compute a sphere-centered average fluid velocity")
 		.def("fluidForce",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::fluidForce,(boost::python::arg("idSph")),"Return the fluid force on sphere idSph.")
 		.def("shearLubForce",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::shearLubForce,(boost::python::arg("idSph")),"Return the shear lubrication force on sphere idSph.")
@@ -335,20 +398,27 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		.def("onlySpheresInteractions",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::onlySpheresInteractions,(boost::python::arg("interaction")),"Return the id of the interaction only between spheres.")
 		.def("pressureProfile",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::pressureProfile,(boost::python::arg("wallUpY"),boost::python::arg("wallDownY")),"Measure pore pressure in 6 equally-spaced points along the height of the sample")
 		.def("getPorePressure",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getPorePressure,(boost::python::arg("pos")),"Measure pore pressure in position pos[0],pos[1],pos[2]")
+		.def("getPoreTemperature",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getPoreTemperature,(boost::python::arg("pos")),"Measure pore pressure in position pos[0],pos[1],pos[2]")
 		.def("averageSlicePressure",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::averageSlicePressure,(boost::python::arg("posY")),"Measure slice-averaged pore pressure at height posY")
-		.def("averagePressure",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::averagePressure,"Measure averaged pore pressure in the entire volume")
-		.def("updateBCs",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::updateBCs,"tells the engine to update it's boundary conditions before running (especially useful when changing boundary pressure - should not be needed for point-wise imposed pressure)")
+		.def("averagePressure",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::averagePressure,"Measure averaged pore pressure in the entire volume, the cells adjacent to the boundaries are ignored if includeBoundaries=False")
+		.def("updateBCs",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::updateBCs,"Update the boundary condition to reflect changes of boundary pressure (needed typically after changing :yref:`FlowEngine::bndCondValue`). It is not sufficient to reflect changes of the type of boundary condition (:yref:`FlowEngine::bndCondIsPressure`), in such case re-triangulation is needed (see :yref:`FlowEngine::updateTriangulation`). Conversely, the update is not necessary for point-wise imposed pressure (:yref:`FlowEngine::imposePressure`)")
 		.def("emulateAction",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::emulateAction,"get scene and run action (may be used to manipulate an engine outside the timestepping loop).")
 		.def("getCell",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getCell,(boost::python::arg("pos")),"get id of the cell containing (X,Y,Z).")
+		.def("getIncidentCells",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getIncidentCells,(boost::python::arg("vertexId")),"get ids of all cells of which vertexId is a vertex. Typical usage is for getting cells indident to a boundary.")
 		.def("getCellBarycenter",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::cellBarycenterFromId,(boost::python::arg("id")),"get barycenter of cell 'id'.")
 		.def("getCellCenter",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::cellCenter,(boost::python::arg("id")),"get voronoi center of cell 'id'.")
 		.def("getCellPressure",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::cellPressure,(boost::python::arg("id")),"get pressure in cell 'id'.")
+		.def("getCellTemperature",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::cellTemperature,(boost::python::arg("id")),"get pressure in cell 'id'.")
 		.def("setCellPressure",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::setCellPressure,(boost::python::arg("id"),boost::python::arg("pressure")),"set pressure in cell 'id'.")
+		.def("setCellTemperature",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::setCellTemperature,(boost::python::arg("id"),boost::python::arg("temperature")),"set temperature in cell 'id'.")
 		.def("getCellPImposed",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::cellPImposed,(boost::python::arg("id")),"get the status of cell 'id' wrt imposed pressure.")
 		.def("setCellPImposed",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::setCellPImposed,(boost::python::arg("id"),boost::python::arg("pImposed")),"make cell 'id' assignable with imposed pressure.")
+		.def("getCellTImposed",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::cellTImposed,(boost::python::arg("id")),"get the status of cell 'id' wrt imposed temperature.")
+		.def("setCellTImposed",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::setCellTImposed,(boost::python::arg("id"),boost::python::arg("tImposed")),"make cell 'id' assignable with imposed temperature.")
 		.def("nCells",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::nCells,"get the total number of finite cells in the triangulation.")
 		.def("blockCell",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::blockCell,(boost::python::arg("id"),boost::python::arg("blockPressure")),"block cell 'id'. The cell will be excluded from the fluid flow problem and the conductivity of all incident facets will be null. If blockPressure=False, deformation is reflected in the pressure, else it is constantly 0.")
 		.def("getVertices",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getVertices,(boost::python::arg("id")),"get the vertices of a cell")
+		.def("getDiffusionCoeff",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getDiffusionCoeff,(boost::python::arg("cellId"),boost::python::arg("throat")),"get the ratio of throat cross-sectional area and distance between two cells")
 		#ifdef LINSOLV
 		.def("exportMatrix",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::exportMatrix,(boost::python::arg("filename")="matrix"),"Export system matrix to a file with all entries (even zeros will displayed).")
 		.def("exportTriplets",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::exportTriplets,(boost::python::arg("filename")="triplets"),"Export system matrix to a file with only non-zero entries.")
@@ -359,6 +429,7 @@ class TemplateFlowEngine_@TEMPLATE_FLOW_NAME@ : public PartialEngine
 		.def("compTessVolumes",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::compTessVolumes,"Like TesselationWrapper::computeVolumes()")
 		.def("volume",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::getVolume,(boost::python::arg("id")=0),"Returns the volume of Voronoi's cell of a sphere.")
 		.def("averageVelocity",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::averageVelocity,"measure the mean velocity in the period")
+		.def("setBoundaryNormal",&TemplateFlowEngine_@TEMPLATE_FLOW_NAME@::setBoundaryNormal,"define the unit outward-pointing normal of a boundary (0<=index<=5).")
 		)
 };
 
@@ -388,11 +459,18 @@ class FlowCellInfo_@TEMPLATE_FLOW_NAME@ : public CGT::SimpleCellInfo {
 	std::vector<CVector> cellForce;
 	std::vector<double> rayHydr;
 	std::vector<double> modulePermeability;
+	std::vector<double> sphericalVertexSurface;
 	// Partial surfaces of spheres in the double-tetrahedron linking two voronoi centers. [i][j] is for sphere facet "i" and sphere facetVertices[i][j]. Last component for 1/sum_surfaces in the facet.doInterpolate
 	double solidSurfaces [4][4];
+	double temperature;
+    Real tempVariation;
+	double internalEnergy;
+	bool Tcondition;
+	
 
 	FlowCellInfo_@TEMPLATE_FLOW_NAME@ (void)
 	{
+		index=0;
 		modulePermeability.resize(4, 0);
 		cellForce.resize(4,CGAL::NULL_VECTOR);
 		facetSurfaces.resize(4,CGAL::NULL_VECTOR);
@@ -400,9 +478,10 @@ class FlowCellInfo_@TEMPLATE_FLOW_NAME@ : public CGT::SimpleCellInfo {
 		facetSphereCrossSections.resize(4,CGAL::NULL_VECTOR);
 		unitForceVectors.resize(4,CGAL::NULL_VECTOR);
 		for (int k=0; k<4;k++) for (int l=0; l<3;l++) solidSurfaces[k][l]=0;
+		sphericalVertexSurface.resize(4,0);
 		rayHydr.resize(4, 0);
-		invSumK=index=volumeSign=s=volumeVariation=pression=invVoidV=fict=0;
-		isFictious=false; Pcondition = false; isGhost = false;
+		invSumK=index=volumeSign=s=volumeVariation=pression=invVoidV=fict=temperature=tempVariation=0;
+		isFictious=false; Pcondition = false; isGhost = false; Tcondition= false;
 		isvisited = false;
 		isGhost=false;
 		blocked=false;
@@ -415,8 +494,10 @@ class FlowCellInfo_@TEMPLATE_FLOW_NAME@ : public CGT::SimpleCellInfo {
 	inline const Real& invVoidVolume (void) const {return invVoidV;}
 	inline Real& invVoidVolume (void) {return invVoidV;}
 	inline Real& dv (void) {return volumeVariation;}
+	inline Real& dtemp (void) {return tempVariation;}
 	inline int& fictious (void) {return fict;}
 	inline double& p (void) {return pression;}
+	inline double& temp (void) {return temperature;}
 	inline const double shiftedP (void) const {return pression;} //For compatibility with the periodic case
 	inline const std::vector<double>& kNorm (void) const {return modulePermeability;}
 	inline std::vector<double>& kNorm (void) {return modulePermeability;}
@@ -425,7 +506,8 @@ class FlowCellInfo_@TEMPLATE_FLOW_NAME@ : public CGT::SimpleCellInfo {
 	inline std::vector<double>& Rh (void) {return rayHydr;}
 	inline CVector& averageVelocity (void) {return averageCellVelocity;}
 	//used for transfering values between two triangulations, overload with more variables in derived classes (see e.g. SoluteFlow)
-	inline void getInfo(const FlowCellInfo_@TEMPLATE_FLOW_NAME@& otherCellInfo) {p()=otherCellInfo.shiftedP();} 
+	inline void getInfo(const FlowCellInfo_@TEMPLATE_FLOW_NAME@& otherCellInfo) {p()=otherCellInfo.shiftedP();}
+	inline Real fluidArea (unsigned throat) {return sqrt(facetSurfaces[throat].squared_length());}
 };
 
 class FlowVertexInfo_@TEMPLATE_FLOW_NAME@ : public CGT::SimpleVertexInfo {

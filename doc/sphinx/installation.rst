@@ -2,10 +2,11 @@
 Installation
 ###############
 
-Yade can be installed from packages (pre-compiled binaries) or source code. 
-The choice depends on what you need: if you don't plan to modify Yade itself, 
-package installation is easier. In the contrary case, you must download and 
-install the source code.
+* Linux systems
+  Yade can be installed from packages (pre-compiled binaries) or source code. The choice depends on what you need: if you don't plan to modify Yade itself, package installation is easier. In the contrary case, you must download and   install the source code.
+
+* Other Operating Systems
+  Jump to the `last section <https://yade-dem.org/doc/installation.html#yubuntu>`_ of this page.
 
 Packages
 ----------
@@ -19,25 +20,25 @@ all the newly added features.
 To install the daily-version you need to add the repository to your
 /etc/apt/sources.list, add the PGP-key AA915EEB as trusted and install ``yadedaily``::
 
-	sudo bash -c 'echo "deb http://www.yade-dem.org/packages/ trusty/" >> /etc/apt/sources.list'
+	sudo bash -c 'echo "deb http://www.yade-dem.org/packages/ xenial/" >> /etc/apt/sources.list'
 	wget -O - http://www.yade-dem.org/packages/yadedev_pub.gpg | sudo apt-key add -
 	sudo apt-get update
 	sudo apt-get install yadedaily
 
-If you have another distribution, not Ubuntu Trusty (Version 14.04 LTS), be sure to use the
-correct name in the first line (for instance, trusty, jessie or wheezy). For the list
+Be sure to use the
+correct name of your Ubuntu/Debian distribution in the first line (xenial for Ubuntu 16.04 LTS, whereas stretch would be required for Debian 9, for instance). For the list
 of currently supported distributions, please visit `yade-dem.org/packages <http://yade-dem.org/packages/>`_.
 
 After that you can normally start Yade using the command ``yadedaily`` or ``yadedaily-batch``.
 ``yadedaily`` on older distributions can have some disabled features due to older library
 versions, shipped with particular distribution. 
 
-The Git-repository for packaging stuff is available on `GitHub <https://github.com/yade/yadedaily/>`_. 
-Each branch corresponds to one distribution, e.g., trusty, jessie etc.
-The scripts for building all of this stuff are `here <https://github.com/yade/trunk/tree/master/scripts/ppa>`_. 
+The Git-repository for packaging stuff is available on `GitLab <https://gitlab.com/yade-dev/yadedaily/>`_. 
+Each branch corresponds to one distribution, e.g., xenial, stretch etc.
+The scripts for building all of this stuff are `here <https://gitlab.com/yade-dev/trunk/tree/master/scripts/ppa>`__. 
 It uses "pbuilder" to build packages, so all packages are built in a clean environment.
 
-If you do not need ``yadedaily``-package any more, just remove the
+If you do not need ``yadedaily``-package anymore, just remove the
 corresponding line in /etc/apt/sources.list and the package itself::
 
 	sudo apt-get remove yadedaily
@@ -61,7 +62,7 @@ The `Debian-Backports <http://backports.debian.org/Instructions>`_
 repository is updated regularly to bring the newest Yade version to the users of stable 
 Debians.
 
-Daily and stable Yade versions can coexist without any conflicts, i.e., you can use `yade`` and ``yadedaily``
+Daily and stable Yade versions can coexist without any conflicts, i.e., you can use ``yade`` and ``yadedaily``
 at the same time.
 
 Source code
@@ -84,24 +85,23 @@ versions will not be updated (except for updates due to critical and
 easy-to-fix bugs), but generally they are more stable than the trunk.
 
 #. Releases can be downloaded from the `download page <https://launchpad.net/yade/+download>`_, as compressed archive. Uncompressing the archive gives you a directory with the sources.
-#. The development version (``trunk``) can be obtained from the `code repository <https://github.com/yade/>`_ at GitHub.
+#. The development version (``trunk``) can be obtained from the `code repository <https://gitlab.com/yade-dev/>`_ at GitLab.
 
 We use `GIT <http://git-scm.com/>`_ (the ``git`` command) for code 
-management (install the ``git`` package on your system and create a `GitHub account <https://github.com/join/>`_)::
+management (install the ``git`` package on your system and create a `GitLab account <https://gitlab.com/users/sign_in>`__)::
 
-		git clone git@github.com:yade/trunk.git
+		git clone git@gitlab.com:yade-dev/trunk.git
 
 will download the whole code repository of the ``trunk``. Check out :ref:`yade-github-label`
 for more details on how to collaborate using ``git``.
 
-Alternatively, a read-only checkout is possible via https without a GitHub account (easier if you don't want to modify the trunk version)::
+Alternatively, a read-only checkout is possible via https without a GitLab account (easier if you don't want to modify the trunk version)::
 
-		git clone https://github.com/yade/trunk.git
+		git clone https://gitlab.com/yade-dev/trunk.git
    
-For those behind a firewall, you can download the sources from our `GitHub <https://github.com/yade>`_ repository as compressed archive.
+For those behind a firewall, you can download the sources from our `GitLab <https://gitlab.com/yade-dev>`__ repository as compressed archive.
 
-Release and trunk sources are compiled in exactly the same way. In order to get notifications about changes
-to the truck (i.e., ``commits``), use `watch option on GitHub <https://help.github.com/articles/watching-repositories/>`_.
+Release and trunk sources are compiled in exactly the same way.
 
 Prerequisites
 ^^^^^^^^^^^^^
@@ -111,7 +111,7 @@ Some of them are only optional. The last ones are only relevant for using the fl
 
 * `cmake <http://www.cmake.org/>`_ build system
 * `gcc <http://www.gcc.gnu.org>`_ compiler (g++); other compilers will not work; you need g++>=4.2 for openMP support
-* `boost <http://www.boost.org/>`_ 1.35 or later
+* `boost <http://www.boost.org/>`_ 1.47 or later
 * `Qt <http://www.qt.io/>`_ library
 * `freeglut3 <http://freeglut.sourceforge.net>`_
 * `libQGLViewer <http://www.libqglviewer.com>`_
@@ -143,10 +143,12 @@ need root privileges.
 		sudo apt-get install cmake git freeglut3-dev libloki-dev \
 		libboost-all-dev fakeroot dpkg-dev build-essential g++ \
 		python-dev ipython python-matplotlib libsqlite3-dev python-numpy python-tk gnuplot \
-		libgts-dev python-pygraphviz libvtk5-dev python-scientific libeigen3-dev \
-		python-xlib python-qt4 pyqt4-dev-tools gtk2-engines-pixbuf python-argparse \
+		libgts-dev python-pygraphviz libvtk6-dev python-numpy libeigen3-dev \
+		python-xlib python-pyqt5 pyqt5-dev-tools python-pyqt5.qtwebkit gtk2-engines-pixbuf python-argparse python-pyqt5.qtsvg \
 		libqglviewer-dev python-imaging libjs-jquery python-sphinx python-git python-bibtex \
 		libxmu-dev libxi-dev libcgal-dev help2man libbz2-dev zlib1g-dev python-minieigen
+		
+* For **Ubuntu 18.04** ``libqglviewer-dev`` is to be replaced by ``libqglviewer-dev-qt5``
 		
 
 Some of the packages (for example, cmake, eigen3) are mandatory, some of them
@@ -158,10 +160,10 @@ Additional packages, which can become mandatory later::
 
 		sudo apt-get install python-gts
 		
-For effective usage of direct solvers in the PFV-type fluid coupling, the following libraries are recommended, together with eigen>=3.1: blas, lapack, suitesparse, and metis.
-All four of them are available in many different versions. Different combinations are possible and not all of them will work. The following was found to be effective on recent deb-based systems. On ubuntu 12.04, better compile openblas with USE_OPENMP=1, else yade will run on a single core::
+For effective usage of direct solvers in the PFV-type fluid coupling, the following libraries are recommended: ``openblas``, ``suitesparse``, and ``metis``.
+All three of them are available in many different versions in each distribution. Different combinations are possible and not all of them will work. The following was found to be effective on recent debian-based systems. ::
 
-		sudo apt-get install libopenblas-dev libsuitesparse-metis-dev
+		sudo apt-get install libopenblas-dev libsuitesparse-dev libmetis-dev
 
 Some packages listed here are relatively new and they can be absent
 in your distribution (for example, libmetis-dev or python-gts). They can be 
@@ -174,7 +176,7 @@ install the software packages listed above. Their names in other distributions c
 names of the Debian-packages.
 
  
-.. warning:: If you have Ubuntu 14.04 Trusty, you need to add -DCMAKE_CXX_FLAGS="-frounding-math"
+.. warning:: If you have Ubuntu 14.04 Trusty, you need to add -DCMAKE_CXX_FLAGS=-frounding-math
  during the configuration step of compilation (see below) or to install libcgal-dev 
  from our `external PPA <https://launchpad.net/~yade-users/+archive/external/>`_.
  Otherwise the following error occurs on AMD64 architectures::
@@ -197,7 +199,7 @@ You should create a separate build-place-folder, where Yade will be configured
 and where the source code will be compiled. Here is an example for a folder structure::
 
 	myYade/       		## base directory
-		trunk/		## folder for source code in which you use github
+		trunk/		## folder for source code in which you use git
 		build/		## folder in which the sources will be compiled; build-directory; use cmake here
 		install/	## install folder; contains the executables
 
@@ -214,7 +216,7 @@ syntax::
 
 	cmake -DOPTION1=VALUE1 -DOPTION2=VALUE2
 	
-The following options are available:
+As of Yade version git-2315bd8 (or 2018.02b release), the following options are available: (see the `source code <https://gitlab.com/yade-dev/trunk/blob/master/CMakeLists.txt>`_ for a most up-to-date list)
 	
 	* CMAKE_INSTALL_PREFIX: path where Yade should be installed (/usr/local by default)
 	* LIBRARY_OUTPUT_PATH: path to install libraries (lib by default)
@@ -231,28 +233,34 @@ The following options are available:
 	* ENABLE_GL2PS: enable GL2PS-option (ON by default)
 	* ENABLE_LINSOLV: enable LINSOLV-option (ON by default)
 	* ENABLE_PFVFLOW: enable PFVFLOW-option, FlowEngine (ON by default)
+	* ENABLE_TWOPHASEFLOW: enable TWOPHASEFLOW-option, TwoPhaseFlowEngine (ON by default)
 	* ENABLE_LBMFLOW: enable LBMFLOW-option, LBM_ENGINE (ON by default)
 	* ENABLE_SPH: enable SPH-option, Smoothed Particle Hydrodynamics (OFF by default)
 	* ENABLE_LIQMIGRATION: enable LIQMIGRATION-option, see [Mani2013]_ for details (OFF by default)
 	* ENABLE_MASK_ARBITRARY: enable MASK_ARBITRARY option (OFF by default)
 	* ENABLE_PROFILING: enable profiling, e.g., shows some more metrics, which can define bottlenecks of the code (OFF by default)
+	* ENABLE_POTENTIAL_PARTICLES: enable potential particles option (OFF by default)
+	* ENABLE_DEFORM: enable constant volume deformation engine (OFF by default)
+	* ENABLE_OAR: generate a script for oar-based task scheduler (OFF by default)
 	* runtimePREFIX: used for packaging, when install directory is not the same as runtime directory (/usr/local by default)
 	* CHUNKSIZE: specifiy the chunk size if you want several sources to be compiled at once. Increases compilation speed but RAM-consumption during compilation as well (1 by default)
 	* VECTORIZE: enables vectorization and alignment in Eigen3 library, experimental (OFF by default)
-	* USE_QT5: use QT5 for GUI, experimental (OFF by default)
+	* USE_QT5: use QT5 for GUI (ON by default)
+	* CHOLMOD_GPU link Yade to custom SuiteSparse installation and activate GPU accelerated PFV (OFF by default)
 
 For using more extended parameters of cmake, please follow the corresponding
 documentation on `https://cmake.org/documentation <https://cmake.org/documentation/>`_. 
 
 .. warning:: To provide Qt4->Qt5 migration one needs to provide an additional option USE_QT5.
- This option should be ON or OFF according to the Qt version, which was used
+ This option is ON by default but should be set according to the Qt version which was used
  to compile libQGLViewer. On Debian/Ubuntu operating systems libQGLViewer
  of version 2.6.3 and higher are compiled against Qt5 (for other operating systems
  refer to the package archive of your distribution), so if you are using
  such version, please switch this option ON. Otherwise, if you mix Qt-versions a
  ``Segmentation fault`` will appear just after Yade is started. To provide
  necessary build dependencies for Qt5, install ``python-pyqt5 pyqt5-dev-tools``
- instead of ``python-qt4 pyqt4-dev-tools``, which is needed for Qt4.
+ instead of ``python-qt4 pyqt4-dev-tools``.
+
 
 If cmake finishes without errors, you will see all enabled 
 and disabled options at the end. Then start the actual compilation process with::
@@ -263,7 +271,7 @@ The compilation process can take a considerable amount of time, be patient.
 If you are using a multi-core systems you can use the parameter ``-j`` to speed-up the compilation
 and split the compilation onto many cores. For example, on 4-core machines
 it would be reasonable to set the parameter ``-j4``. Note, Yade requires
-approximately 2GB RAM per core for compilation, otherwise the swap-file will be used
+approximately 3GB RAM per core for compilation, otherwise the swap-file will be used
 and compilation time dramatically increases.
 
 The installation is performed with the following command::
@@ -298,11 +306,39 @@ upon detecting the C and C++ compiler to use::
 Clang does not support OpenMP-parallelizing for the moment, that is why the 
 feature will be disabled.
 
+Speed-up compilation
+^^^^^^^^^^^^^^^^^^^^^
+
+When spliting the compilation on many cores (``make -jN``), ``N`` is limited by the available cores and memory. It is possible to use more cores if remote computers are available, distributing the compilation with `distcc <https://wiki.archlinux.org/index.php/Distcc>`_  (see distcc documentation for configuring slaves and master)::
+
+	export CC=distcc gcc
+	export CXX=distcc g++
+	cmake [options as usual]
+	make -jN
+
+In addition, and independently of distcc, caching previous compilations with `ccache <https://ccache.samba.org/>`_ can speed up re-compilation::
+
+	export CC=ccache gcc
+	export CXX=ccache g++
+	cmake [options as usual]
+	
+The two tools can be combined very simply, adding to the above exports::
+
+	export CCACHE_PREFIX="distcc"
+
+Cloud Computing
+----------------
+
+It is possible to exploit cloud computing services to run Yade. The combo Yade/Amazon Web Service has been found to work well, namely. Detailed instructions for migrating to amazon can be found in the section :ref:`CloudComputing`.
+
+GPU Acceleration
+----------------
+
+The FlowEngine can be accelerated with CHOLMOD's GPU accelerated solver. The specific hardware and software requirements are outlined in the section :ref:`GPUacceleration`.
 
 Yubuntu
 ------------
 
-If you are not running Ubuntu nor Debian, there is a way to create a Yubuntu `live-usb <http://en.wikipedia.org/wiki/Live_USB>`_ on any usb mass-storage device (minimum recommended size is 5GB). It is a way to make a bootable usb-key with a preinstalled minimalist operating system (Xubuntu), including Yadedaily and Paraview.
+If you are not running a Linux system there is a way to create an Ubuntu `live-usb <http://en.wikipedia.org/wiki/Live_USB>`_ on any usb mass-storage device (minimum size 10GB). It is a way to boot the computer on a linux system with Yadedaily pre-installed without affecting the original system. More informations about this alternative are available `here <http://people.3sr-grenoble.fr/users/bchareyre/pubs/yubuntu/>`_ (see the README file first).
 
-More informations about this alternative are available `here <http://geo.hmg.inpg.fr/~chareyre/pubs/yubuntu/>`_ (see the README file first).
-
+Alternatively, images of a linux virtual machine can be downloaded, `here again <http://people.3sr-grenoble.fr/users/bchareyre/pubs/yubuntu/>`_, and they should run on any system with a virtualization software (tested with VirtualBox and VMWare).

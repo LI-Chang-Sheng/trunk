@@ -28,9 +28,9 @@ class FlowBoundingSphere : public Network<_Tesselation>
 		DECLARE_TESSELATION_TYPES(Network<Tesselation>)
 		
 		//painfull, but we need that for templates inheritance...
-		using _N::T; using _N::xMin; using _N::xMax; using _N::yMin; using _N::yMax; using _N::zMin; using _N::zMax; using _N::Rmoy; using _N::sectionArea; using _N::Height; using _N::vTotal; using _N::currentTes; using _N::debugOut; using _N::nOfSpheres; using _N::xMinId; using _N::xMaxId; using _N::yMinId; using _N::yMaxId; using _N::zMinId; using _N::zMaxId; using _N::boundsIds; using _N::cornerMin; using _N::cornerMax;  using _N::VSolidTot; using _N::Vtotalissimo; using _N::vPoral; using _N::sSolidTot; using _N::vPoralPorosity; using _N::vTotalPorosity; using _N::boundaries; using _N::idOffset; using _N::vtkInfiniteVertices; using _N::vtkInfiniteCells; using _N::num_particles; using _N::boundingCells; using _N::facetVertices; using _N::facetNFictious;
+		using _N::T; using _N::xMin; using _N::xMax; using _N::yMin; using _N::yMax; using _N::zMin; using _N::zMax; using _N::Rmoy; using _N::sectionArea; using _N::Height; using _N::vTotal; using _N::currentTes; using _N::debugOut; using _N::nOfSpheres; using _N::xMinId; using _N::xMaxId; using _N::yMinId; using _N::yMaxId; using _N::zMinId; using _N::zMaxId; using _N::boundsIds; using _N::cornerMin; using _N::cornerMax;  using _N::VSolidTot; using _N::Vtotalissimo; using _N::vPoral; using _N::sSolidTot; using _N::vPoralPorosity; using _N::vTotalPorosity; using _N::boundaries; using _N::idOffset; using _N::vtkInfiniteVertices; using _N::vtkInfiniteCells; using _N::num_particles; using _N::boundingCells; using _N::facetVertices; using _N::facetNFictious; using _N::thermalBoundingCells; using _N::conductionBoundingCells;
 		//same for functions
-		using _N::defineFictiousCells; using _N::addBoundingPlanes; using _N::boundary; using _N::tesselation;
+		using _N::defineFictiousCells; using _N::addBoundingPlanes; using _N::boundary; using _N::tesselation; using _N::surfaceSolidThroatInPore; using _N::thermalBoundary;using _N::conductionBoundary;
 
 		virtual ~FlowBoundingSphere();
  		FlowBoundingSphere();
@@ -45,7 +45,15 @@ class FlowBoundingSphere : public Network<_Tesselation>
 		bool computedOnce;//flag for checking if current triangulation has been computed at least once
 		bool pressureChanged;//are imposed pressures modified (on python side)? When it happens, we have to reApplyBoundaryConditions
 		int errorCode;
-		
+		bool factorizeOnly;
+		bool getCHOLMODPerfTimings;
+		bool reuseOrdering;
+
+		bool thermalEngine;
+		double fluidRho;
+		double fluidCp;
+		bool sphericalVertexAreaCalculated = 0;
+
 		//Handling imposed pressures/fluxes on elements in the form of {point,value} pairs, IPCells contains the cell handles corresponding to point
 		vector<pair<Point,Real> > imposedP;
 		vector<CellHandle> IPCells;
@@ -55,7 +63,6 @@ class FlowBoundingSphere : public Network<_Tesselation>
 		vector<CellHandle> blockedCells;
 		//Pointers to vectors used for user defined boundary pressure
 		vector<Real> *pxpos, *ppval;
-		
 		void initNewTri () {noCache=true; /*isLinearSystemSet=false; areCellsOrdered=false;*/}//set flags after retriangulation
 		bool permeabilityMap;
 
@@ -64,6 +71,10 @@ class FlowBoundingSphere : public Network<_Tesselation>
 		double minKdivKmean;
 		double maxKdivKmean;
 		int Iterations;
+
+		//Handling imposed temperatures on elements in the form of {point,value} pairs, ITCells contains the cell handles corresponding to point
+		vector<pair<Point,Real> > imposedT;
+		vector<CellHandle> ITCells;
 
 		bool rAverage;
 		int walls_id[6];
@@ -106,12 +117,17 @@ class FlowBoundingSphere : public Network<_Tesselation>
 
 		double viscosity;
 		double fluidBulkModulus;
+		bool multithread;
 		
 		void displayStatistics();
 		void initializePressure ( double pZero );
+		void initializeTemperatures ( double tZero );
 		bool reApplyBoundaryConditions ();
 		void computeFacetForcesWithCache(bool onlyCache=false);
-		void saveVtk (const char* folder);
+		void saveVtk (const char* folder, bool withBoundaries);
+		//write vertices, cells, return ids and no. of fictious neighbors, allIds is an ordered list of cell ids (from begin() to end(), for vtk table lookup),
+		// some ids will appear multiple times if withBoundaries==true since boundary cells are splitted into multiple tetrahedra 
+		void saveMesh(basicVTKwritter& writer, bool withBoundaries, vector<int>& allIds,  vector<int>& fictiousN, const char* folder);
 #ifdef XVIEW
 		void dessineTriangulation ( Vue3D &Vue, RTriangulation &T );
 		void dessineShortTesselation ( Vue3D &Vue, Tesselation &Tes );
@@ -123,6 +139,7 @@ class FlowBoundingSphere : public Network<_Tesselation>
 
 		double dotProduct ( CVector x, CVector y );
 		double computeEffectiveRadius(CellHandle cell, int j);
+		double computeEffectiveRadiusByPosRadius(const Point& posA, const double& rA, const Point& posB, const double& rB, const Point& posC, const double& rC);
 		double computeEquivalentRadius(CellHandle cell, int j);
 		//return the list of constriction values
 		vector<double> getConstrictions();
@@ -154,6 +171,7 @@ class FlowBoundingSphere : public Network<_Tesselation>
 		void applyUserDefinedPressure(RTriangulation& Tri, vector<Real>& xpos, vector<Real>& pval);
 		bool isOnSolid  (double X, double Y, double Z);
 		double getPorePressure (double X, double Y, double Z);
+		double getPoreTemperature (double X, double Y, double Z);
 		void measurePressureProfile(double WallUpy, double WallDowny);
 		double averageSlicePressure(double Y);
 		double averagePressure();
@@ -164,6 +182,7 @@ class FlowBoundingSphere : public Network<_Tesselation>
 		vector<Real> averageFluidVelocityOnSphere(unsigned int Id_sph);
 		//Solver?
 		int useSolver;//(0 : GaussSeidel, 1:CHOLMOD)
+		double fractionalSolidArea(CellHandle cell, int j);
 };
 
 } //namespace CGT
@@ -171,8 +190,5 @@ class FlowBoundingSphere : public Network<_Tesselation>
 #ifdef LINSOLV
 #include "lib/triangulation/FlowBoundingSphereLinSolv.hpp"
 #endif
-
-/// _____ Template Implementation ____
-// #include "lib/triangulation/FlowBoundingSphereLinSolv.ipp"
 
 #endif //FLOW_ENGINE

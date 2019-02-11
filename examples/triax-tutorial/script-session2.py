@@ -49,9 +49,9 @@ triax=ThreeDTriaxialEngine(
 	stressControl_2 = False,
 	stressControl_3 = False,
 	## Independant stress values for anisotropic loadings
-	sigma1=-10000,
-	sigma2=-10000,
-	sigma3=-10000,
+	goal1=-10000,
+	goal2=-10000,
+	goal3=-10000,
 	internalCompaction=True,
 	Key=key,
 )
@@ -119,7 +119,7 @@ triax.strainRate1=triax.strainRate3=1000.0
 ##... need to active stress control in 3 directions
 #triax.stressControl_1=triax.stressControl_2=triax.stressControl_3=True
 ##... choose the value of axial stress where we want to stop the compression
-#triax.sigma2=-12000
+#triax.goal2=-12000
 ##... fix a maximum strain rate to go progressivly to the desired stress state in direction 2
 #triax.strainRate2=0.01
 ##... fix a high value of maximum strain rate in radial direction to be sure to keep in any conditions a constant confining pressure
@@ -132,8 +132,8 @@ triax.strainRate1=triax.strainRate3=1000.0
   #unb=unbalancedForce()
   ##note: triax.stress(k) returns a stress vector, so we need to keep only the normal component
   #axialS=triax.stress(triax.wall_top_id)[1]
-  #print 'unbalanced force:',unb,' sigma2: ',axialS
-  #if unb<stabilityThreshold and abs((axialS-triax.sigma2)/triax.sigma2)<0.001:
+  #print 'unbalanced force:',unb,' goal2: ',axialS
+  #if unb<stabilityThreshold and abs((axialS-triax.goal2)/triax.goal2)<0.001:
     #break
 
 #O.save('anisotropicState'+key+'.xml')
@@ -156,13 +156,13 @@ triax.strainRate1=triax.strainRate3=1000.0
 	#for ite in range(rampIte):# progressivaly increase of stress state
 		#O.run(20, True)
 		##incrementation of stress state
-		#triax.sigma2 = initSa+dsa/rampIte*ite
-		#triax.sigma1 = triax.sigma3 = initSr+dsr/rampIte*ite
-		#print triax.sigma1, triax.sigma2
+		#triax.goal2 = initSa+dsa/rampIte*ite
+		#triax.goal1 = triax.goal3 = initSr+dsr/rampIte*ite
+		#print triax.goal1, triax.goal2
 
 	## fix the stress value for stabilization at the final state
-	#triax.sigma2 = initSa+dsa
-	#triax.sigma1 = triax.sigma3 = initSr+dsr
+	#triax.goal2 = initSa+dsa
+	#triax.goal1 = triax.goal3 = initSr+dsr
 
 	#while 1:
 		#O.run(100, True)
@@ -190,8 +190,8 @@ triax.strainRate1=triax.strainRate3=1000.0
 	##We redefine the "triax" label, else it would point to inactive engine from previous simulation that is still in memory
 	#triax=O.engines[4]
 
-	#initSa=triax.sigma2  #save of the initial axial stress
-	#initSr=triax.sigma1  #save of the initial radial stress
+	#initSa=triax.goal2  #save of the initial axial stress
+	#initSr=triax.goal1  #save of the initial radial stress
 
 	## define the final stress state to be reached
 	#finalSa = initSa+dSa

@@ -9,22 +9,18 @@
 *************************************************************************/
 
 #include"Scene.hpp"
-#include<core/Engine.hpp>
-#include<core/Timing.hpp>
-#include<core/TimeStepper.hpp>
 
-#include<lib/base/Math.hpp>
-#include<boost/date_time/posix_time/posix_time.hpp>
-#include<boost/algorithm/string.hpp>
+#include <lib/base/Math.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/algorithm/string.hpp>
 
-#include<core/BodyContainer.hpp>
-#include<core/InteractionContainer.hpp>
+#include <core/BodyContainer.hpp>
+#include <core/InteractionContainer.hpp>
+#include <core/TimeStepper.hpp>
 
-
-// POSIX-only
-#include<pwd.h>
-#include<unistd.h>
-#include<time.h>
+#include <pwd.h>
+#include <unistd.h>
+#include <time.h>
 
 namespace py=boost::python;
 
@@ -36,14 +32,23 @@ bool TimingInfo::enabled=false;
 void Scene::fillDefaultTags(){
 	// fill default tags
 	struct passwd* pw;
-	char hostname[HOST_NAME_MAX];
-	gethostname(hostname,HOST_NAME_MAX);
-	pw=getpwuid(geteuid()); if(!pw) throw runtime_error("getpwuid(geteuid()) failed!");
+	char hostname[hostNameMax];
+	gethostname(hostname,hostNameMax);
+	pw=getpwuid(geteuid()); //if(!pw) throw runtime_error("getpwuid(geteuid()) failed!"); // FIXME: Does it really justify an exception??
 	// a few default tags
 	// real name: will have all non-ASCII characters replaced by ? since serialization doesn't handle that
 	// the standard GECOS format is Real Name,,, - first comma and after will be discarded
-	string gecos(pw->pw_gecos), gecos2; size_t p=gecos.find(","); if(p!=string::npos) boost::algorithm::erase_tail(gecos,gecos.size()-p); for(size_t i=0;i<gecos.size();i++){gecos2.push_back(((unsigned char)gecos[i])<128 ? gecos[i] : '?'); }
-	tags.push_back(boost::algorithm::replace_all_copy(string("author=")+gecos2+" ("+string(pw->pw_name)+"@"+hostname+")"," ","~"));
+
+	if(pw) { // May fail in some clusters
+		string gecos(pw->pw_gecos), gecos2;
+		size_t p=gecos.find(",");
+		if(p!=string::npos) boost::algorithm::erase_tail(gecos,gecos.size()-p);
+		for(size_t i=0;i<gecos.size();i++){gecos2.push_back(((unsigned char)gecos[i])<128 ? gecos[i] : '?'); }
+		tags.push_back(boost::algorithm::replace_all_copy(string("author=")+gecos2+" ("+string(pw->pw_name)+"@"+hostname+")"," ","~"));
+	} else {
+		tags.push_back(boost::algorithm::replace_all_copy(string("author=FakeReal Name (FakeReal@")+hostname+")"," ","~"));
+	}
+	
 	tags.push_back(string("isoTime="+boost::posix_time::to_iso_string(boost::posix_time::second_clock::local_time())));
 	string id=boost::posix_time::to_iso_string(boost::posix_time::second_clock::local_time())+"p"+boost::lexical_cast<string>(getpid());
 	tags.push_back("id="+id);
@@ -51,8 +56,6 @@ void Scene::fillDefaultTags(){
 	tags.push_back("id.d="+id);
 	// tags.push_back("revision="+py::extract<string>(py::import("yade.config").attr("revision"))());;
 }
-
-
 
 void Scene::postLoad(Scene&){
 	// update the interaction container; must be done in Scene ctor as well; important!
@@ -64,8 +67,6 @@ void Scene::postLoad(Scene&){
 		if(b->material!=materials[b->material->id]) throw std::logic_error("Scene::postLoad: Internal inconsistency, shared materials not preserved when loaded; please report bug.");
 	}
 }
-
-
 
 void Scene::moveToNextTimeStep(){
 	if(runInternalConsistencyChecks){
@@ -137,8 +138,6 @@ void Scene::moveToNextTimeStep(){
 	}
 }
 
-
-
 shared_ptr<Engine> Scene::engineByName(const string& s){
 	FOREACH(shared_ptr<Engine> e, engines){
 		if(e->getClassName()==s) return e;
@@ -172,8 +171,6 @@ bool Scene::timeStepperActivate(bool a){
 	return n>0;
 }
 
-
-
 void Scene::checkStateTypes(){
 	FOREACH(const shared_ptr<Body>& b, *bodies){
 		if(!b || !b->material) continue;
@@ -204,4 +201,3 @@ void Scene::updateBound(){
 	bound->min=mn; 
 	bound->max=mx;
 }
-

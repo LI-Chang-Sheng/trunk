@@ -2,6 +2,8 @@
 # Copyright (C) 2012 by Bruno Chareyre
 # An update of the original script from Janek Kozicki
 
+# This script shows how to run a triaxial test on clumps.
+
 from yade import pack
 from numpy import arange
 import itertools

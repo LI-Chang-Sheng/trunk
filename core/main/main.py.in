@@ -164,6 +164,100 @@ def userSession(gui='none',qapp=None):
 	import sys
 	if __name__ != "__main__": # for importing as python module
 		return
+	
+	# common ipython configuration
+	# use standard terminal color codes to make F12, F11 bold, and underline the word "help", see https://stackoverflow.com/questions/4842424/list-of-ansi-color-escape-sequences
+	banner='[[ ^L clears screen, ^U kills line. '+', '.join((['\033[1mF12\033[0m controller','\033[1mF11\033[0m 3D view (press \033[4m"h"\033[0m in 3D view for \033[4mhelp\033[0m)','\033[1mF10\033[0m both','\033[1mF9\033[0m generator'] if (gui<>'none') else [])+['\033[1mF8\033[0m plot'])+'. ]]'
+	ipconfig=dict( # ipython options, see e.g. http://www.cv.nrao.edu/~rreid/casa/tips/ipy_user_conf.py
+		prompt_in1='Yade [\#]: ',
+		prompt_in2='     .\D.: ',
+		prompt_out=" ->  [\#]: ",
+		separate_in='',separate_out='',separate_out2='',
+		#execfile=[prefix+'/lib/yade'+suffix+'/py/yade/ipython.py'],
+		readline_parse_and_bind=[
+			'tab: complete',
+			# only with the gui; the escape codes might not work on non-linux terminals.
+			]
+			+(['"\e[24~": "\C-Uyade.qt.Controller();\C-M"','"\e[23~": "\C-Uyade.qt.View();\C-M"','"\e[21~": "\C-Uyade.qt.Controller(), yade.qt.View();\C-M"','"\e[20~": "\C-Uyade.qt.Generator();\C-M"'] if (gui<>'none') else []) #F12,F11,F10,F9
+			+['"\e[19~": "\C-Uimport yade.plot; yade.plot.plot();\C-M"', #F8
+				'"\e[A": history-search-backward', '"\e[B": history-search-forward', # incremental history forward/backward
+		]
+	)
+
+	# show python console
+	# handle ipython version (version 10 nost tested after some changes here)
+	if yade.runtime.ipython_version==10:
+		from IPython.Shell import IPShellEmbed
+		ipshell=IPShellEmbed(banner=banner,rc_override=ipconfig)
+		# save history -- a workaround for atexit handlers not being run (why?)
+		# http://lists.ipython.scipy.org/pipermail/ipython-user/2008-September/005839.html
+		import IPython.ipapi
+		IPython.ipapi.get().IP.atexit_operations()
+	elif yade.runtime.ipython_version==11:
+		from IPython.frontend.terminal.embed import InteractiveShellEmbed
+		# use the dict to set attributes
+		for k in ipconfig: setattr(InteractiveShellEmbed,k,ipconfig[k])
+		InteractiveShellEmbed.banner1=banner+'\n'  # called banner1 here, not banner anymore
+		ipshell=InteractiveShellEmbed()
+	elif yade.runtime.ipython_version>=12:
+		if yade.runtime.ipython_version>=100:
+			from IPython.terminal.embed import InteractiveShellEmbed
+		else:
+			from IPython.frontend.terminal.embed import InteractiveShellEmbed
+		if yade.runtime.ipython_version>=500:
+			from traitlets.config.loader import Config
+			cfg = Config()
+			prompt_config = cfg.TerminalInteractiveShell.prompts_class
+		else:
+			from IPython.config.loader import Config
+			cfg = Config()
+			prompt_config = cfg.PromptManager
+		prompt_config.in_template = ipconfig['prompt_in1']
+		prompt_config.in2_template = ipconfig['prompt_in2']
+		prompt_config.out_template = ipconfig['prompt_out']
+		import readline
+		for k in ipconfig['readline_parse_and_bind']: readline.parse_and_bind(k)
+		InteractiveShellEmbed.config=cfg
+		InteractiveShellEmbed.banner1=banner+'\n'
+		ipshell=InteractiveShellEmbed()
+
+		# ipython since version 5.0 stopped using libreadline, now we must make the bindings in another way
+		# see: https://python-prompt-toolkit.readthedocs.io/en/1.0.14/pages/full_screen_apps.html?highlight=add_binding
+		# and: https://stackoverflow.com/questions/38443907/how-does-one-set-specific-vim-bindings-in-ipython-5-0-0
+		# and: https://github.com/ipython/ipython/pull/11426/commits/e08dc1b4dd30e8d2b607134693f226e8a22100ec#diff-d47c339db04f28c44a59c6662dbd53eaR228
+		registry=None
+		# depending on version the keybindigs registry sits in different places
+		if getattr(ipshell, 'pt_cli'):
+			registry = ipshell.pt_cli.application.key_bindings_registry
+		if getattr(ipshell, 'pt_app', None):
+			registry = ipshell.pt_app.key_bindings
+		if(registry != None):
+			from prompt_toolkit.keys import Keys
+			@registry.add_binding(Keys.F12, eager=True)
+			def invokeController_(event):
+				yade.qt.Controller()
+			@registry.add_binding(Keys.F11, eager=True)
+			def invokeView_(event):
+				yade.qt.View()
+			@registry.add_binding(Keys.F10, eager=True)
+			def invokeBoth_(event):
+				yade.qt.View()
+				yade.qt.Controller()
+			@registry.add_binding(Keys.F9, eager=True)
+			def invokeGenerator_(event):
+				yade.qt.Generator()
+			@registry.add_binding(Keys.F8, eager=True)
+			def invokeGenerator_(event):
+				try:
+					import yade.plot
+					yade.plot.plot()
+				except:
+					print("\nThere is no data to plot (yet), see https://yade-dem.org/doc/user.html#plotting-variables\n")
+
+		# If IPython > 5 one need to initialize graphic gui
+		if ((gui == "qt5" or gui == "qt4")and yade.runtime.ipython_version>=500):
+			ipshell.enable_gui(gui)
+		
 	# start non-blocking qt4 app here; need to ask on the mailing list on how to make it functional
 	## with ipython 0.11, start the even loop early (impossible with 0.10, which is thread-based)
 	#if qt4 and yade.runtime.ipython_version==11:
@@ -187,59 +281,9 @@ def userSession(gui='none',qapp=None):
 					if yade.runtime.opts.exitAfter: sys.exit(1)
 				if yade.runtime.opts.exitAfter: sys.exit(0)
 			runScript(arg0)
-	if yade.runtime.opts.exitAfter: sys.exit(0)
-	# common ipython configuration
-	banner='[[ ^L clears screen, ^U kills line. '+', '.join((['F12 controller','F11 3d view (use h-key for showing help)','F10 both','F9 generator'] if (gui<>'none') else [])+['F8 plot'])+'. ]]'
-	ipconfig=dict( # ipython options, see e.g. http://www.cv.nrao.edu/~rreid/casa/tips/ipy_user_conf.py
-		prompt_in1='Yade [\#]: ',
-		prompt_in2='     .\D.: ',
-		prompt_out=" ->  [\#]: ",
-		separate_in='',separate_out='',separate_out2='',
-		#execfile=[prefix+'/lib/yade'+suffix+'/py/yade/ipython.py'],
-		readline_parse_and_bind=[
-			'tab: complete',
-			# only with the gui; the escape codes might not work on non-linux terminals.
-			]
-			+(['"\e[24~": "\C-Uyade.qt.Controller();\C-M"','"\e[23~": "\C-Uyade.qt.View();\C-M"','"\e[21~": "\C-Uyade.qt.Controller(), yade.qt.View();\C-M"','"\e[20~": "\C-Uyade.qt.Generator();\C-M"'] if (gui<>'none') else []) #F12,F11,F10,F9
-			+['"\e[19~": "\C-Uimport yade.plot; yade.plot.plot();\C-M"', #F8
-				'"\e[A": history-search-backward', '"\e[B": history-search-forward', # incremental history forward/backward
-		]
-	)
-	
-	# show python console
-	# handle both ipython 0.10 and 0.11 (incompatible API)
-	if yade.runtime.ipython_version==10:
-		from IPython.Shell import IPShellEmbed
-		ipshell=IPShellEmbed(banner=banner,rc_override=ipconfig)
-		ipshell()
-		# save history -- a workaround for atexit handlers not being run (why?)
-		# http://lists.ipython.scipy.org/pipermail/ipython-user/2008-September/005839.html
-		import IPython.ipapi
-		IPython.ipapi.get().IP.atexit_operations()
-	elif yade.runtime.ipython_version==11:
-		from IPython.frontend.terminal.embed import InteractiveShellEmbed
-		# use the dict to set attributes
-		for k in ipconfig: setattr(InteractiveShellEmbed,k,ipconfig[k])
-		InteractiveShellEmbed.banner1=banner+'\n'  # called banner1 here, not banner anymore
-		ipshell=InteractiveShellEmbed()
-		ipshell()
-	elif yade.runtime.ipython_version>=12:
-		if yade.runtime.ipython_version>=100:
-			from IPython.terminal.embed import InteractiveShellEmbed
-		else:
-			from IPython.frontend.terminal.embed import InteractiveShellEmbed
-		from IPython.config.loader import Config
-		cfg = Config()
-		prompt_config = cfg.PromptManager
-		prompt_config.in_template = ipconfig['prompt_in1']
-		prompt_config.in2_template = ipconfig['prompt_in2']
-		prompt_config.out_template = ipconfig['prompt_out']
-		import readline
-		for k in ipconfig['readline_parse_and_bind']: readline.parse_and_bind(k)
-		InteractiveShellEmbed.config=cfg
-		InteractiveShellEmbed.banner1=banner+'\n'
-		ipshell=InteractiveShellEmbed()
-		ipshell()
+		if yade.runtime.opts.exitAfter: sys.exit(0)
+	## start interpreter
+	ipshell()
 
 ## run userSession in a way corresponding to the features we use:
 gui=None
@@ -256,7 +300,7 @@ if gui:
 		# contrary to display.Display, _BaseDisplay does not check for extensions and that avoids spurious message "Xlib.protocol.request.QueryExtension" (bug?)
 		Xlib.display._BaseDisplay();
 		yade.runtime.hasDisplay=True
-	except: 
+	except:
 		# usually Xlib.error.DisplayError, but there can be Xlib.error.XauthError etc as well
 		# let's just pretend any exception means the display would not work
 		gui=None

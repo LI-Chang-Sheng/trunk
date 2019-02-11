@@ -64,7 +64,7 @@ def yadesrc_role(role,rawtext,lineno,inliner,options={},content=[]):
 	m=re.match('(.*)\s*<(.*)>\s*',id)
 	if m:
 		txt,id=m.group(1),m.group(2)
-	return [nodes.reference(rawtext,docutils.utils.unescape(txt),refuri='https://github.com/yade/trunk/blob/master/%s'%id)],[] ### **options should be passed to nodes.reference as well
+	return [nodes.reference(rawtext,docutils.utils.unescape(txt),refuri='https://gitlab.com/yade-dev/trunk/blob/master/%s'%id)],[] ### **options should be passed to nodes.reference as well
 
 # map modules to their html (rst) filenames. Used for sub-modules, where e.g. SpherePack is yade._packSphere.SpherePack, but is documented from yade.pack.rst
 moduleMap={
@@ -102,14 +102,7 @@ def mkYrefNode(target,text,rawtext,role,explicitText,lineno,options={}):
 	else:
 		uri=(('%%yade.wrapper#yade.wrapper.%s'%target) if writer=='latex' else 'yade.wrapper.html#yade.wrapper.%s'%target)
 		#print writer,uri
-	if 0:
-		refnode=addnodes.pending_xref(rawtext,reftype=role,refexplicit=explicitText,reftarget=target)
-		#refnode.line=lineno
-		#refnode+=nodes.literal(rawtext,text,classes=['ref',role])
-		return [refnode],[]
-		#ret.rawtext,reftype=role,
-	else:
-		return nodes.reference(rawtext,docutils.utils.unescape(text),refuri=uri,**options)
+	return nodes.reference(rawtext,docutils.utils.unescape(text),refuri=uri,**options)
 	#return [refnode],[]
 
 def ydefault_role(role,rawtext,text,lineno,inliner,options={},content=[]):
@@ -179,6 +172,7 @@ def fixSrc(app,docname,source):
 	source[0]=replaceLaTeX(source[0])
 
 def fixDocstring(app,what,name,obj,options,lines):
+	for i in range(0,len(lines)): lines[i]=lines[i].decode('utf-8')
 	# remove empty default roles, which is not properly interpreted by docutils parser
 	for i in range(0,len(lines)):
 		lines[i]=lines[i].replace(':ydefault:``','')
@@ -194,8 +188,9 @@ def fixDocstring(app,what,name,obj,options,lines):
 			lines[i]=l2[i] if i<len(l2) else ''
 	elif isBoostMethod(what,obj):
 		l2=boostFuncSignature(name,obj)[1]
-		for i in range(0,len(lines)):
-			lines[i]=l2[i] if i<len(l2) else ''
+                if (l2):
+                    for i in range(0,len(lines)):
+                            lines[i]=l2[i] if i<len(l2) else ''
 	# LaTeX: replace $...$ by :math:`...`
 	# must be done after calling boostFuncSignature which uses original docstring
 	for i in range(0,len(lines)): lines[i]=replaceLaTeX(lines[i])
@@ -364,10 +359,12 @@ if 1:
 	else:
 		if 12<=yade.runtime.ipython_version<13:
 			import ipython_directive012 as id
-                elif 13<=yade.runtime.ipython_version<200:
+		elif 13<=yade.runtime.ipython_version<200:
 			import ipython_directive013 as id
-                else:
+		elif 200<=yade.runtime.ipython_version<500:
 			import ipython_directive200 as id
+		else:
+			import ipython_directive500 as id
 
 	#The next four lines are for compatibility with IPython 0.13.1
 	ipython_rgxin =re.compile(r'(?:In |Yade )\[(\d+)\]:\s?(.*)\s*')
@@ -396,7 +393,7 @@ extensions = [
 		'sphinx.ext.autodoc',
 		'sphinx.ext.autosummary',
 		'sphinx.ext.coverage',
-		'sphinx.ext.pngmath',
+		'sphinx.ext.mathjax',
 		'sphinx.ext.graphviz',
 		'sphinx.ext.viewcode',
 		'sphinx.ext.inheritance_diagram',
@@ -414,10 +411,12 @@ if yade.runtime.ipython_version<12:
 else:
 	if 12<=yade.runtime.ipython_version<13:
 		extensions.append('ipython_directive012')
-        elif 13<=yade.runtime.ipython_version<200:
+	elif 13<=yade.runtime.ipython_version<200:
 		extensions.append('ipython_directive013')
-        else:
+	elif 200<=yade.runtime.ipython_version<500:
 		extensions.append('ipython_directive200')
+	else:
+		extensions.append('ipython_directive500')
 
 # the sidebar extension
 if False:
@@ -679,60 +678,51 @@ my_maketitle=r'''
 \vspace{5 mm}
 \vspace{70 mm}
 \begin{sffamily}\bfseries\Large
-V\'{a}clav \v{S}milauer, Emanuele Catalano, Bruno Chareyre, Sergei Dorofeenko, Jerome Duriez, Anton Gladky, Janek Kozicki, Chiara Modenese, Luc Scholt\`{e}s, Luc Sibille, Jan Str\'{a}nsk\'{y}, Klaus Thoeni
+V\'{a}clav \v{S}milauer, Emanuele Catalano, Bruno Chareyre, Sergei Dorofeenko, J\'er\^ome Duriez, Nolan Dyck, Jan Eli\'{a}\v{s}, Burak Er, Alexander Eulitz, Anton Gladky, Ning Guo, Christian Jakob, Fran\c{c}ois Kneib, Janek Kozicki, Donia Marzougui, Rapha\"el Maurin, Chiara Modenese, Luc Scholt\`{e}s, Luc Sibille, Jan Str\'{a}nsk\'{y}, Thomas Sweijen, Klaus Thoeni, Chao Yuan
 \end{sffamily}
 \vspace{20 mm}
 \hrule{}
 
 \vfill
 % Bottom of the page
-\textit{\Large Release '''\
+\textit{\Large 2nd Edition, after Release '''\
 +yade.config.revision\
 +r''', \today}
 \end{flushright}
 
 \end{titlepage}
 
-\text{\sffamily\bfseries\LARGE Authors}\\
-\\
-\text{\sffamily\bfseries\Large V\'{a}clav \v{S}milauer}\\
-\text{\sffamily\Large Freelance consultant (http://woodem.eu)}\\
-\\
-\text{\sffamily\bfseries\Large Emanuele Catalano}\\
-\text{\sffamily\Large Grenoble INP, UJF, CNRS, lab. 3SR}\\
-\\
-\text{\sffamily\bfseries\Large Bruno Chareyre}\\
-\text{\sffamily\Large Grenoble INP, UJF, CNRS, lab. 3SR}\\
-\\
-\text{\sffamily\bfseries\Large Sergei Dorofeenko}\\
-\text{\sffamily\Large IPCP RAS, Chernogolovka}\\
-\\
-\text{\sffamily\bfseries\Large Jerome Duriez}\\
-\text{\sffamily\Large Grenoble INP, UJF, CNRS, lab. 3SR}\\
-\\
-\text{\sffamily\bfseries\Large Anton Gladky}\\
-\text{\sffamily\Large TU Bergakademie Freiberg}\\
-\\
-\text{\sffamily\bfseries\Large Janek Kozicki}\\
-\text{\sffamily\Large Gdansk University of Technology - lab. 3SR Grenoble University }\\
-\\
-\text{\sffamily\bfseries\Large Chiara Modenese}\\
-\text{\sffamily\Large University of Oxford}\\
-\\
-\text{\sffamily\bfseries\Large Luc Scholt\`{e}s}\\
-\text{\sffamily\Large Grenoble INP, UJF, CNRS, lab. 3SR}\\
-\\
-\text{\sffamily\bfseries\Large Luc Sibille}\\
-\text{\sffamily\Large University of Nantes, lab. GeM}\\
-\\
-\text{\sffamily\bfseries\Large Jan Str\'{a}nsk\'{y}}\\
-\text{\sffamily\Large CVUT Prague}\\
-\\
-\text{\sffamily\bfseries\Large Klaus Thoeni}\\
-\text{\sffamily\Large The University of Newcastle (Australia)}\\
+\text{\sffamily\bfseries\large Authors}
+%\begin{multicols}{2} %%Compile error 
+\begin{itemize}
+ \item \text{\sffamily\bfseries\normalsize V\'{a}clav \v{S}milauer} \text{\sffamily\small Freelance consultant (http://woodem.eu)}
+ \item \text{\sffamily\bfseries\normalsize Emanuele Catalano} \text{\sffamily\small Grenoble INP, UJF, CNRS, lab. 3SR}
+ \item \text{\sffamily\bfseries\normalsize Bruno Chareyre} \text{\sffamily\small Grenoble INP, UJF, CNRS, lab. 3SR}
+ \item \text{\sffamily\bfseries\normalsize Sergei Dorofeenko} \text{\sffamily\small IPCP RAS, Chernogolovka}
+ \item \text{\sffamily\bfseries\normalsize J\'er\^ome Duriez} \text{\sffamily\small Irstea, RECOVER}
+ \item \text{\sffamily\bfseries\normalsize Nolan Dyck} \text{\sffamily\small Univ. of Western Ontario}
+ \item \text{\sffamily\bfseries\normalsize Jan Eli\'{a}\v{s}} \text{\sffamily\small Brno University of Technology}
+ \item \text{\sffamily\bfseries\normalsize Burak Er} \text{\sffamily\small Bursa Technical University}
+ \item \text{\sffamily\bfseries\normalsize Alexander Eulitz} \text{\sffamily\small TU Berlin / Institute for Machine Tools}\\ \text{\sffamily\small and Factory Management}
+ \item \text{\sffamily\bfseries\normalsize Anton Gladky} \text{\sffamily\small TU Bergakademie Freiberg}
+ \item \text{\sffamily\bfseries\normalsize Ning Guo} \text{\sffamily\small Hong Kong Univ. of Science and Tech.}
+ \item \text{\sffamily\bfseries\normalsize Christian Jakob} \text{\sffamily\small TU Bergakademie Freiberg}
+ \item \text{\sffamily\bfseries\normalsize Fran\c{c}ois Kneib} \text{\sffamily\small Grenoble INP, UJF, CNRS, lab. 3SR / Irstea Grenoble}
+ \item \text{\sffamily\bfseries\normalsize Janek Kozicki} \text{\sffamily\small Gdansk University of Technology}
+ \item \text{\sffamily\bfseries\normalsize Donia Marzougui} \text{\sffamily\small Grenoble INP, UJF, CNRS, lab. 3SR}
+ \item \text{\sffamily\bfseries\normalsize Rapha\"el Maurin} \text{\sffamily\small Irstea Grenoble}
+ \item \text{\sffamily\bfseries\normalsize Chiara Modenese} \text{\sffamily\small University of Oxford}
+ \item \text{\sffamily\bfseries\normalsize Luc Scholt\`{e}s} \text{\sffamily\small Grenoble INP, UJF, CNRS, lab. 3SR}
+ \item \text{\sffamily\bfseries\normalsize Luc Sibille} \text{\sffamily\small University of Nantes, lab. GeM}
+ \item \text{\sffamily\bfseries\normalsize Jan Str\'{a}nsk\'{y}} \text{\sffamily\small CVUT Prague}
+ \item \text{\sffamily\bfseries\normalsize Thomas Sweijen} \text{\sffamily\small Utrecht University}
+ \item \text{\sffamily\bfseries\normalsize Klaus Thoeni} \text{\sffamily\small The University of Newcastle (Australia)}
+ \item \text{\sffamily\bfseries\normalsize Chao Yuan} \text{\sffamily\small Grenoble INP, UJF, CNRS, lab. 3SR}
+\end{itemize}
+%\end{multicols}
 
 \text{\sffamily\bfseries\large Citing this document}\\
-In order to let users cite Yade consistently in publications, we provide a list of bibliographic references for the different parts of the documentation. This way of acknowledging Yade is also a way to make developments and documentation of Yade more attractive for researchers, who are evaluated on the basis of citations of their work by others. We therefore kindly ask users to cite Yade as accurately as possible in their papers, as explained in http://yade-dem/doc/citing.html.
+In order to let users cite Yade consistently in publications, we provide a list of bibliographic references for the different parts of the documentation. We therefore kindly ask users to cite Yade as accurately as possible in their papers, as explained at http://yade-dem/doc/citing.html.
 
 '''
 
@@ -763,8 +753,8 @@ latex_elements=dict(
 latex_documents = [
    ('index-toctree', 'Yade.tex', u'Yade Documentation',
    u'Václav Šmilauer', 'manual'),
-   ('index-toctree_manuals', 'YadeManuals.tex', u'Yade Tutorial and Manuals',
-   u'Václav Šmilauer', 'manual'),
+   #('index-toctree_manuals', 'YadeManuals.tex', u'Yade Tutorial and Manuals',
+   #u'Václav Šmilauer', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -783,3 +773,6 @@ latex_logo = 'fig/yade-logo.png'
 
 # If false, no module index is generated.
 #latex_use_modindex = True
+
+# This option fixes PDF compilation failure on sphinx>1.4.9
+latex_keep_old_macro_names = False

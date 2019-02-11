@@ -10,7 +10,7 @@ If new developments are presented and explained in self-contained papers (at the
 
 Citing the Yade Project as a whole (the lazy citation method)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-If it is not possible to choose the right chapter (but please try), you may cite the documentation [yade:doc]_ as a whole:
+If it is not possible to choose the right chapter (but please try), you may cite the documentation [yade:doc2]_ as a whole (a `(pdf version) <https://www.yade-dem.org/publi/documentation_2nd_ed/YadeBook.pdf>`_ is available):
 
 	V. Šmilauer et al. (2015), Yade Documentation 2nd ed. The Yade Project. DOI 10.5281/zenodo.34073 (http://yade-dem.org/doc/)
 
@@ -27,5 +27,5 @@ The second edition of Yade documentation is seen as a collection with the three 
 * Fundamentals of the DEM as implemented in Yade are explained in `(pdf version) <https://www.yade-dem.org/publi/documentation_2nd_ed/YadeTheory.pdf>`__:
 	V. Šmilauer et al. (2015), Dem formulation. In Yade Documentation 2nd ed. The Yade Project , DOI 10.5281/zenodo.34044 (http://yade-dem.org/doc/)
 
-Plain bibtex items can be `found here <https://github.com/yade/trunk/blob/master/doc/citing_yade.bib>`_.
+Plain bibtex items can be `found here <https://gitlab.com/yade-dev/trunk/blob/master/doc/citing_yade.bib>`_.
 

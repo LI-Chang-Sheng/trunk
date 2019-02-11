@@ -18,8 +18,6 @@
 - The Law2_ScGridCoGeom_FrictPhys_CundallStrack who handles the elastic frictional Sphere-GridConnection contact. The GridNode-GridNode law is Law2_ScGeom6D_CohFrictPhys_CohesionMoment by inheritance.
 */
 
-
-
 #pragma once
 #include "Sphere.hpp"
 #include <pkg/dem/FrictPhys.hpp>
@@ -42,12 +40,16 @@ class GridConnection: public Sphere{
 		virtual ~GridConnection();
 		Real getLength();
 		Vector3r getSegment();
-	YADE_CLASS_BASE_DOC_ATTRS_CTOR(GridConnection,Sphere,"GridConnection shape. Component of a grid designed to link two :yref:`GridNodes<GridNode>`. It's highly recommended to use utils.gridConnection(...) to generate correct :yref:`GridConnections<GridConnection>`.",
+		void addPFacet(shared_ptr<Body> PF); 
+	YADE_CLASS_BASE_DOC_ATTRS_CTOR_PY(GridConnection,Sphere,"GridConnection shape (see [Effeindzourou2016]_, [Bourrier2013]_). Component of a grid designed to link two :yref:`GridNodes<GridNode>`. It is highly recommended to use :yref:`yade.gridpfacet.gridConnection` to generate correct :yref:`GridConnections<GridConnection>`.",
 		((shared_ptr<Body> , node1 , ,,"First :yref:`Body` the GridConnection is connected to."))
 		((shared_ptr<Body> , node2 , ,,"Second :yref:`Body` the GridConnection is connected to."))
 		((bool, periodic, false,,"true if two nodes from different periods are connected."))
-		((Vector3i , cellDist , Vector3i(0,0,0),,"missing doc :(")),
-		createIndex(); /*ctor*/
+		 ((vector<shared_ptr<Body> >,pfacetList,,Attr::hidden,"List of :yref:`PFacet<PFacet>` the GridConnection is connected to."))
+		((Vector3i , cellDist , Vector3i(0,0,0),,"Distance of bodies in cell size units, if using periodic boundary conditions. Note that periodic boundary conditions for GridConnections have not yet been fully implemented.")),
+		createIndex();, /*ctor*/
+				/*py*/			  
+		.def("addPFacet",&GridConnection::addPFacet,(boost::python::arg("Body")),"Add a PFacet to the GridConnection.") 
 	);
 	REGISTER_CLASS_INDEX(GridConnection,Sphere);
 };
@@ -58,16 +60,55 @@ class GridNode: public Sphere{
 	public:
 		virtual ~GridNode();
 		void addConnection(shared_ptr<Body> GC);
-	YADE_CLASS_BASE_DOC_ATTRS_CTOR_PY(GridNode,Sphere,"GridNode shape, component of a grid.\nTo create a Grid, place the nodes first, they will define the spacial discretisation of it. It's highly recommended to use utils.gridNode(...) to generate correct :yref:`GridNodes<GridNode>`. Note that the GridNodes should only be in an Interaction with other GridNodes. The Sphere-Grid contact is only handled by the :yref:`GridConnections<GridConnection>`.",
-		((vector<shared_ptr<Body> >,ConnList,,,"List of :yref:`GridConnections<GridConnection>` the GridNode is connected to.")),
+		void addPFacet(shared_ptr<Body> PF); 
+	YADE_CLASS_BASE_DOC_ATTRS_CTOR_PY(GridNode,Sphere,"GridNode shape, component of a grid.\nTo create a Grid, place the nodes first, they will define the spacial discretisation of it. It is highly recommended to use :yref:`yade.gridpfacet.gridNode` to generate correct :yref:`GridNodes<GridNode>`. Note that the GridNodes should only be in an Interaction with other GridNodes. The Sphere-Grid contact is only handled by the :yref:`GridConnections<GridConnection>`.",
+		((vector<shared_ptr<Body> >,pfacetList,,Attr::hidden,"List of :yref:`PFacets<PFacet>` the GridConnection is connected to."))
+		((vector<shared_ptr<Body> >,ConnList,,Attr::hidden,"List of :yref:`GridConnections<GridConnection>` the GridNode is connected to.")),
 		/*ctor*/
 		createIndex();,
 		/*py*/
 		.def("addConnection",&GridNode::addConnection,(boost::python::arg("Body")),"Add a GridConnection to the GridNode.")
+		.def("addPFacet",&GridNode::addPFacet,(boost::python::arg("Body")),"Add a PFacet to the GridNode.")
 	);
 	REGISTER_CLASS_INDEX(GridNode,Sphere);
 };
 REGISTER_SERIALIZABLE(GridNode);
+
+
+//!##################	PFacet SHAPE   #####################
+
+class PFacet : public Shape {
+    public:
+	
+	virtual ~PFacet();
+	/// Normals of edges 
+	Vector3r ne[3];
+	/// Inscribing cirle radius
+	Real icr;
+	/// Length of the vertice vectors
+	Real vl[3];
+	/// Unit vertice vectors
+	Vector3r vu[3];
+
+	YADE_CLASS_BASE_DOC_ATTRS_CTOR(PFacet,Shape,"PFacet (particle facet) geometry (see [Effeindzourou2016]_, [Effeindzourou2015a]_). It is highly recommended to use the helper functions in :yref:`yade.gridpfacet` (e.g., gridpfacet.pfacetCreator1-4) to generate correct :yref:`PFacet<PFacet>` elements.",
+		((shared_ptr<Body> , node1 , ,,"First :yref:`Body` the Pfacet is connected to."))
+		((shared_ptr<Body> , node2 , ,,"Second :yref:`Body` the Pfacet is connected to."))
+		((shared_ptr<Body> , node3 , ,,"third :yref:`Body` the Pfacet is connected to."))
+		((shared_ptr<Body> , conn1 , ,,"First :yref:`Body` the Pfacet is connected to."))
+		((shared_ptr<Body> , conn2 , ,,"Second :yref:`Body` the Pfacet is connected to."))
+		((shared_ptr<Body> , conn3 , ,,"third :yref:`Body` the Pfacet is connected to."))
+		((Vector3r,normal,Vector3r(NaN,NaN,NaN),(Attr::readonly | Attr::noSave),"PFacet's normal (in local coordinate system)"))
+		((Real,radius,-1,,"PFacet's radius"))
+		((Real,area,NaN,(Attr::readonly | Attr::noSave),"PFacet's area"))
+		((Vector3i , cellDist , Vector3i(0,0,0),,"Distance of bodies in cell size units, if using periodic boundary conditions. Note that periodic boundary conditions for PFacets have not yet been fully implemented."))
+		,
+		/* ctor */ createIndex();
+	);
+	DECLARE_LOGGER;
+	
+	REGISTER_CLASS_INDEX(PFacet,Shape);
+};
+REGISTER_SERIALIZABLE(PFacet);
 
 
 //!##################	Contact Geometry   #####################
@@ -97,6 +138,8 @@ class ScGridCoGeom: public ScGeom6D {
 		((int,trueInt,-1,,"Defines the body id of the :yref:`GridConnection` where the contact is real, when :yref:`ScGridCoGeom::isDuplicate`>0."))
 		((int,id3,0,,"id of the first :yref:`GridNode`. |yupdate|"))
 		((int,id4,0,,"id of the second :yref:`GridNode`. |yupdate|"))
+		((int,id5,-1,,"id of the third :yref:`GridNode`. |yupdate|"))
+		((Vector3r,weight,Vector3r(0,0,0),,"barycentric coordinates of the projection point |yupdate|"))
 		((Real,relPos,0,,"position of the contact on the connection (0: node-, 1:node+) |yupdate|")),
 		createIndex(); /*ctor*/
 	);

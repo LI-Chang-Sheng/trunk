@@ -219,19 +219,19 @@ Non-elastic parameters differ for various material models. Usually, though, they
 
 .. _sect-strain-evaluation:
 
-Strain evaluation
-=================
+Kinematic variables
+===================
 In the general case, mutual configuration of two particles has 6 degrees of freedom (DoFs) just like a beam in 3D space: both particles have 6 DoFs each, but the interaction itself is free to move and rotate in space (with both spheres) having 6 DoFs itself; then $12-6=6$. They are shown at `fig-spheres-dofs`_.
 
 .. _fig-spheres-dofs:
 .. figure:: fig/spheres-dofs.*
 
-	Degrees of freedom of configuration of two spheres. Normal strain appears if there is a difference of linear velocity along the interaction axis ($n$); shearing originates from the difference of linear velocities perpendicular to $n$ *and* from the part of $\vec{\omega}_1+\vec{\omega}_2$ perpendicular to $n$; twisting is caused by the part of $\vec{\omega}_1-\vec{\omega}_2$ parallel with $n$; bending comes from the part of $\vec{\omega}_1-\vec{\omega}_2$ perpendicular to $n$.
+	Degrees of freedom of configuration of two spheres. Normal motion appears if there is a difference of linear velocity along the interaction axis ($n$); shearing originates from the difference of linear velocities perpendicular to $n$ *and* from the part of $\vec{\omega}_1+\vec{\omega}_2$ perpendicular to $n$; twisting is caused by the part of $\vec{\omega}_1-\vec{\omega}_2$ parallel with $n$; bending comes from the part of $\vec{\omega}_1-\vec{\omega}_2$ perpendicular to $n$.
 
-We will only describe normal and shear components of strain in the following, leaving torsion and bending aside. The reason is that most constitutive laws for contacts do not use the latter two.
+We will only describe normal and shear components of the relative movement in the following, leaving torsion and bending aside. The reason is that most constitutive laws for contacts do not use the latter two. 
 
-Normal strain
--------------
+Normal deformation
+------------------
 
 .. _sect-normal-strain-constants:
 
@@ -312,8 +312,8 @@ For massively compressive simulations, it might be beneficial to use the logarit
 
 Such definition, however, has the disadvantage of effectively increasing rigidity (up to infinity) of contacts, requiring $\Dt$ to be adjusted, lest the simulation becomes unstable. Such dynamic adjustment is possible using a stiffness-based time-stepper (:yref:`GlobalStiffnessTimeStepper` in Yade).
 
-Shear strain
--------------
+Shear deformation
+-----------------
 In order to keep $\vec{u}_T$ consistent (e.g. that $\vec{u}_T$ must be constant if two spheres retain mutually constant configuration but move arbitrarily in space), then either $\vec{u}_T$ must track spheres' spatial motion or must (somehow) rely on sphere-local data exclusively.
 
 Geometrical meaning of shear strain is shown in `fig-shear-2d`_.
@@ -341,7 +341,7 @@ The classical incremental algorithm is widely used in DEM codes and is described
       :nowrap:
 
       \begin{align*}
-          \vec{v}_{12}&=\left(\pprev{\vec{v}}_2+\prev{\vec{\omega}}_2\times(-d_2 \currn)\right)-\left(\pprev{\vec{v}}_1+\pprev{\vec{\omega}}_1\times(d_1 \currn)\right) \\
+          \vec{v}_{12}&=\left(\pprev{\vec{v}}_2+\pprev{\vec{\omega}}_2\times(-d_2 \currn)\right)-\left(\pprev{\vec{v}}_1+\pprev{\vec{\omega}}_1\times(d_1 \currn)\right) \\
          \vec{v}_{12}^{\perp}&=\vec{v}_{12}-(\curr{\vec{n}} \cdot \vec{v}_{12})\currn \\
          (\Delta \uT)_3&=-\Delta t \vec{v}_{12}^{\perp}
       \end{align*}
@@ -354,13 +354,13 @@ Finally, we compute
 
 .. _sect-formulation-stress-cundall:
 
-Stress evaluation (example)
-===========================
-Once strain on a contact is computed, it can be used to compute stresses/forces acting on both spheres.
-
-The constitutive law presented here is the most usual DEM formulation, originally proposed by Cundall. While the strain evaluation will be similar to algorithms described in the previous section regardless of stress evaluation, stress evaluation itself depends on the nature of the material being modeled. The constitutive law presented here is the most simple non-cohesive elastic case with dry friction, which Yade implements in :yref:`Law2_ScGeom_FrictPhys_CundallStrack` (all constitutive laws derive from base class :yref:`LawFunctor`).
-		
+Contact model (example)
+=======================
+The kinematic variables of an interaction are used to determine the forces acting on both spheres via a constitutive law.
 In DEM generally, some constitutive laws are expressed using strains and stresses while others prefer displacement/force formulation. The law described here falls in the latter category.
+
+The constitutive law presented here is the most common in DEM, originally proposed by Cundall. While the kinematic variables are described in the previous section regardless of the contact model, the force evaluation depends on the nature of the material being modeled. The constitutive law presented here is the simplest non-cohesive elastic-frictional contact model, which Yade implements in :yref:`Law2_ScGeom_FrictPhys_CundallStrack` (all constitutive laws derive from base class :yref:`LawFunctor`).
+		
 
 When new contact is established (discussed in :ref:`sect-simulation-loop`) it has its properties (:yref:`IPhys`) computed from :yref:`Materials<Material>` associated with both particles. In the simple case of frictional material :yref:`FrictMat`, :yref:`Ip2_FrictMat_FrictMat_FrictPhys` creates a new :yref:`FrictPhys` instance, which defines normal stiffness $K_N$, shear stiffness $K_T$ and friction angle $\phi$.
 
@@ -452,7 +452,7 @@ Updating particle orientation $\curr{q}$ proceeds in an analogous way to positio
 
 .. math:: \curraaccel_i&=\vec{T}_i/\vec{I}_{11},
 
-We use the same approximation scheme, obtaining an equation analogous to :eq:`eq-leapfrog-nnextvel`
+We use the same approximation scheme, obtaining an equation analogous to :eq:`eq-leapfrog-nextvel`
 
 .. math:: \nnextangvel&=\pprevangvel+\Dt\curraaccel.
 
@@ -648,16 +648,16 @@ This equation can be used for all 6 degrees of freedom (DOF) in translation and 
 				
 DEM simulations
 """"""""""""""""
-In DEM simulations, per-particle stiffness $\vec{K}_{ij}$ is determined from the stiffnesses of contacts in which it participates [Chareyre2005]_. Suppose each contact has normal stiffness $K_{Nk}$, shear stiffness $K_{Tk}=\xi K_{Nk}$ and is oriented by normal $\vec{n}_{k}$. A translational stiffness matrix $\vec{K}_{ij}$ can be defined as the sum of contributions of all contacts in which it participates (indices $k$), as
+In DEM simulations, per-particle stiffness $\vec{K}_{ij}$ is determined from the stiffnesses of contacts in which it participates.  Suppose each contact has normal stiffness $K_{Nk}$, shear stiffness $K_{Tk}=\xi K_{Nk}$ and is oriented by normal $\vec{n}_{k}$. A translational stiffness matrix $\vec{K}_{ij}$ can be defined as the sum of contributions of all contacts in which it participates (indices $k$), as [Chareyre2005]_.
 
 .. math::
 	:label: eq-dtcr-particle-stiffness
 	
 	\vec{K}_{ij}=\sum_k (K_{Nk}-K_{Tk})\vec{n}_{i}\vec{n}_{j}+K_{Tk}=\sum_j K_{Nk}\left((1-\xi)\vec{n}_{i}\vec{n}_{j}+\xi\right)
 
-with $i$ and $j\in\{x,y,z\}$. Equations :eq:`eq-dtcr-axes` and :eq:`eq-dtcr-particle-stiffness` determine $\Dtcr$ in a simulation. A similar approach generalized to all 6 DOFs is implemented by the :yref:`GlobalStiffnessTimeStepper` engine in Yade. The derivation of generalized stiffness including rotational terms is very similar but not developped here, for simplicity. For full reference, see "PFC3D - Theoretical Background".
+with $i$ and $j\in\{x,y,z\}$. Equations :eq:`eq-dtcr-axes` and :eq:`eq-dtcr-particle-stiffness` determine $\Dtcr$ in a simulation. A similar approach generalized to all 6 DOFs is implemented by the :yref:`GlobalStiffnessTimeStepper` engine in Yade. The derivation of generalized stiffness including rotational terms is very similar and can be found in [AboulHosn2016]_.
 					
-Note that for computation efficiency reasons, eigenvalues of the stiffness matrices are not computed. They are only approximated assuming than DOF's are uncoupled, and using diagonal terms of $K.M^{-1}$. They give good approximates in typical mechanical systems.
+Note that for computation efficiency reasons, eigenvalues of the stiffness matrices are not computed. They are only approximated assuming than DOF's are uncoupled, and using the diagonal terms of $K.M^{-1}$. They give good approximates in typical mechanical systems.
 
 There is one important condition that $\omega_{\rm max}>0$: if there are no contacts between particles and $\omega_{\rm max}=0$, we would obtain value $\Dtcr=\infty$. While formally correct, this value is numerically erroneous: we were silently supposing that stiffness remains constant during each timestep, which is not true if contacts are created as particles collide. In case of no contact, therefore, stiffness must be pre-estimated based on future interactions, as shown in the next section.
 				
@@ -671,7 +671,7 @@ Estimating timestep in absence of interactions is based on the connection betwee
 			 
 In Yade, particles have associated :yref:`Material` which defines density $\rho$ (:yref:`Material.density`), and also may define (in :yref:`ElastMat` and derived classes) particle's "Young's modulus" $E$ (:yref:`ElastMat.young`). $\rho$ is used when particle's mass $m$ is initially computed from its $\rho$, while $E$ is taken in account when creating new interaction between particles, affecting stiffness $K_N$. Knowing $m$ and $K_N$, we can estimate :eq:`eq-dtcr-particle-stiffness` for each particle; we obviously neglect 
 
-* number of interactions per particle $N_i$; for a "reasonable" radius distribution, however, there is a geometrically imposed upper limit (6 for a 2D-packing of spheres with equal radii, for instance);
+* number of interactions per particle $N_i$; for a "reasonable" radius distribution, however, there is a geometrically imposed upper limit (12 for a packing of spheres with equal radii, for instance);
 * the exact relationship the between particles' rigidities $E_i$, $E_j$, supposing only that $K_N$ is somehow proportional to them.
 
 By defining $E$ and $\rho$, particles have continuum-like quantities. Explicit integration schemes for continuum equations impose a critical timestep based on sonic speed $\sqrt{E/\rho}$; the elastic wave must not propagate farther than the minimum distance of integration points $l_{\rm min}$ during one step. Since $E$, $\rho$ are parameters of the elastic continuum and $l_{\rm min}$ is fixed beforehand, we obtain
@@ -704,11 +704,11 @@ Let us compare this result to :eq:`eq-dtcr-global`; this necessitates making sev
 
 As all particles have the same parameters, we drop the $i$ index in the following formulas.
 	
-We try to express the average per-particle stiffness from :eq:`eq-dtcr-particle-stiffness`. It is a sum over all interactions where $K_{N}$ and $\xi$ are scalars that will not rotate with interaction, while $\vec{n}_w$ is $w$-th component of unit interaction normal $\vec{n}$. Since we supposed uniform spatial distribution, we can replace $\vec{n}_w^2$ by its average value $\overline{\vec{n}}_w^2$. Recognizing components of $\vec{n}$ as direction cosines, the average values of $\vec{n}_w^2$ is $1/3$. %we find the average value by integrating over all possible orientations, which are uniformly distributed in space:
+We try to express the average per-particle stiffness from :eq:`eq-dtcr-particle-stiffness`. It is a sum over all interactions where $K_{N}$ and $\xi$ are scalars that will not rotate with interaction, while $\vec{n}_w$ is $w$-th component of unit interaction normal $\vec{n}$. Since we supposed uniform spatial distribution, we can replace $\vec{n}_w^2$ by its average value $\overline{\vec{n}}_w^2$. Recognizing components of $\vec{n}$ as direction cosines, the average values of $\vec{n}_w^2$ is $1/3$. We find the average value by integrating over all possible orientations, which are uniformly distributed in space:
 			
 Moreover, since all directions are equal, we can write the per-body stiffness as $K=\vec{K}_w$ for all $w\in\{x,y,z\}$. We obtain 
 
-.. math:: K=\sum K_N\left((1-\xi)\frac{1}{3}+\xi\right)=\sum K_N\frac{1-2\xi}{3}
+.. math:: K=\sum K_N\left((1-\xi)\frac{1}{3}+\xi\right)=\sum K_N\frac{1+2\xi}{3}
 
 and can put constant terms (everything) in front of the summation. $\sum 1$ equals the number of contacts per sphere, i.e. $N$. Arriving at
 
@@ -735,13 +735,13 @@ Concrete particle model
          K_N&=\frac{A_{\rm eq}E}{d_0}.
       \end{align*}
 
-   $d_0$ is the initial contact length, which will be, for interaction radius :eq:`eq-strain-interaction-radius` $R_I>1$, in average larger than $2R$. For $R_I=1.5$ (sect. :ref:`sect-calibration-elastic-properties`), we can roughly estimate $\overline{d}_0=1.25\cdot2R=\frac{5}{2}R$, getting
+   $d_0$ is the initial contact length, which will be, for interaction radius :eq:`eq-strain-interaction-radius` $R_I>1$, in average larger than $2R$. For $R_I=1.5$ ,we can roughly estimate $\overline{d}_0=1.25\cdot2R=\frac{5}{2}R$, getting
 
    .. math:: K_N=E\left(\frac{2}{5}\pi\right)R
 
    where $\frac{2}{5}\pi=\pi'$ by comparison with :eq:`eq-dt-kn`.
 
-   Interaction radius $R_I=1.5$ leads to average $N\approx12$ interactions per sphere for dense packing of spheres with the same radius $R$. $\xi=0.2$ is calibrated (sect. :ref:`sect-calibration-elastic-properties`) to match the desired macroscopic Poisson's ratio $\nu=0.2$.
+   Interaction radius $R_I=1.5$ leads to average $N\approx12$ interactions per sphere for dense packing of spheres with the same radius $R$. $\xi=0.2$ is calibrated to match the desired macroscopic Poisson's ratio $\nu=0.2$.
 
    Finally, we obtain the ratio
 
@@ -777,7 +777,7 @@ After the definition of the initial cell's geometry, $\mat{H}$ should generally 
 
 Deformations handling
 ---------------------
-The deformation of the cell over time is defined via a matrix representing the gradient of an homogeneous velocity field $\nabla \vec{v}$ (:yref:`Cell.velGrad`). This gradient represents arbitrary combinations of rotations and stretches. It can be imposed externaly or updated by :yref:`boundary controllers <BoundaryController>` (see :yref:`PeriTriaxController` or :yref:`Peri3dController`) in order to reach target strain values or to maintain some prescribed stress.
+The deformation of the cell over time is defined via a tensor representing the gradient of an homogeneous velocity field $\nabla \vec{v}$ (:yref:`Cell.velGrad`). This gradient represents arbitrary combinations of rotations and stretches. It can be imposed externaly or updated by :yref:`boundary controllers <BoundaryController>` (see :yref:`PeriTriaxController` or :yref:`Peri3dController`) in order to reach target strain values or to maintain some prescribed stress.
 
 The velocity gradient is integrated automatically over time, and the cumulated transformation is reflected in the transformation matrix $\mat{F}$ (:yref:`Cell.trsf`) and the current shape of the cell $\mat{H}$. The per-step transformation update reads (it is similar for $\mat{H}$), with $I$ the identity matrix:
 

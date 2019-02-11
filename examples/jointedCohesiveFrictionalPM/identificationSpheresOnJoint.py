@@ -10,6 +10,7 @@ facetMat = O.materials.append(JCFpmMat(type=0,young=1,frictionAngle=radians(1),p
 def sphereMat(): return JCFpmMat(type=1,young=1,frictionAngle=radians(1),density=1,poisson=1,tensileStrength=1e6,cohesion=1e6,jointNormalStiffness=1,jointShearStiffness=1,jointTensileStrength=1e6,jointCohesion=1e6,jointFrictionAngle=1)
 
 ############################ Import of the sphere assembly
+print "\n  In case of errors please look at README about generating parallellepiped_10.spheres file\n"
 O.bodies.append(ymport.text(packing+'.spheres',scale=1,shift=Vector3(0,0,0),material=sphereMat)) #(-3,-4,-8)
 
 #### some preprocessing (not mandatory)

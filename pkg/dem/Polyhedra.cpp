@@ -2,31 +2,37 @@
 // https://www.vutbr.cz/www_base/gigadisk.php?i=95194aa9a
 
 #ifdef YADE_CGAL
-
-#include<core/Interaction.hpp>
-#include<core/Omega.hpp>
-#include<core/Scene.hpp>
-#include<core/State.hpp>
-#include<pkg/common/ElastMat.hpp>
-#include<pkg/common/Aabb.hpp>
-#include"Polyhedra.hpp"
-
-#define _USE_MATH_DEFINES
+// NDEBUG causes crashes in CGAL sometimes. Anton
+#ifdef NDEBUG
+	#undef NDEBUG
+#endif
+#include "Polyhedra.hpp"
 
 YADE_PLUGIN(/* self-contained in hpp: */ (Polyhedra) (PolyhedraGeom) (Bo1_Polyhedra_Aabb) (PolyhedraPhys) (PolyhedraMat) (Ip2_PolyhedraMat_PolyhedraMat_PolyhedraPhys) (Ip2_FrictMat_PolyhedraMat_FrictPhys) (Law2_PolyhedraGeom_PolyhedraPhys_Volumetric)
 	/* some code in cpp (this file): */ 
 	#ifdef YADE_OPENGL
 		(Gl1_Polyhedra) (Gl1_PolyhedraGeom) (Gl1_PolyhedraPhys)
-	#endif	
+	#endif
 	);
 
 //*********************************************************************************
 /* Polyhedra Constructor */
 
+Polyhedra::Polyhedra(const std::vector<Vector3r> && V) {
+	createIndex();
+	v = V;
+	Initialize();
+}
+
+Polyhedra::Polyhedra (const Vector3r && xsize, const int && xseed) {
+	createIndex();
+	seed=xseed;
+	size=xsize;
+	v.clear();
+	Initialize();
+}
 void Polyhedra::Initialize(){
-
 	if (init) return;
-
 	bool isRandom = false;
 	
 	//get vertices
@@ -56,7 +62,7 @@ void Polyhedra::Initialize(){
 	v.clear();
 	for (Polyhedron::Vertex_iterator vIter = P.vertices_begin(); vIter != P.vertices_end(); ++vIter, i++){
 		v.push_back(Vector3r(vIter->point().x(),vIter->point().y(),vIter->point().z()));
-	}	
+	}
 
 	//list surface triangles for plotting
 	faceTri.clear();
@@ -82,7 +88,7 @@ void Polyhedra::Initialize(){
 		seed = rand();
 		Initialize();
 	}
-        Vector3r translation((-1)*centroid);
+	Vector3r translation((-1)*centroid);
 	
 	//set centroid to be [0,0,0]
 	for(int i=0;i<N;i++) {
@@ -93,10 +99,10 @@ void Polyhedra::Initialize(){
 	Vector3r origin(0,0,0);
 
 	//move and rotate also the CGAL structure Polyhedron
-	Transformation t_trans(1.,0.,0.,translation[0],0.,1.,0.,translation[1],0.,0.,1.,translation[2],1.);		
-	std::transform( P.points_begin(), P.points_end(), P.points_begin(), t_trans);	
+	Transformation t_trans(1.,0.,0.,translation[0],0.,1.,0.,translation[1],0.,0.,1.,translation[2],1.);
+	std::transform( P.points_begin(), P.points_end(), P.points_begin(), t_trans);
 
-	//compute inertia	
+	//compute inertia
 	Real vtet;
 	Vector3r ctet;
 	Matrix3r Itet1, Itet2;
@@ -111,7 +117,7 @@ void Polyhedra::Initialize(){
 			-ctet[0]*ctet[1], ctet[0]*ctet[0]+ctet[2]*ctet[2], -ctet[2]*ctet[1],
 			-ctet[0]*ctet[2], -ctet[2]*ctet[1], ctet[1]*ctet[1]+ctet[0]*ctet[0];
 		inertia_tensor = inertia_tensor + Itet1 + Itet2*vtet; 
-	}	
+	}
 
 	if(std::abs(inertia_tensor(0,1))+std::abs(inertia_tensor(0,2))+std::abs(inertia_tensor(1,2)) < 1E-13){
 		// no need to rotate, inertia already diagonal
@@ -142,9 +148,8 @@ void Polyhedra::Initialize(){
 		Vector3r third = (I_rot.col(0)).cross(I_rot.col(1));
 		I_rot(0,2) = third[0];
 		I_rot(1,2) = third[1];
-		I_rot(2,2) = third[2];	
+		I_rot(2,2) = third[2];
 		
-					
 		inertia = Vector3r(I_new(0,0),I_new(1,1),I_new(2,2));
 		orientation = Quaternionr(I_rot); 
 		//rotate the voronoi cell so that x - is maximal inertia axis and z - is minimal inertia axis
@@ -152,27 +157,45 @@ void Polyhedra::Initialize(){
 		for(int i=0; i< (int) v.size();i++) {
 			v[i] =  orientation.conjugate()*v[i];
 		}
-			
+		
 		//rotate also the CGAL structure Polyhedron
 		Matrix3r rot_mat = (orientation.conjugate()).toRotationMatrix();
-		Transformation t_rot(rot_mat(0,0),rot_mat(0,1),rot_mat(0,2),rot_mat(1,0),rot_mat(1,1),rot_mat(1,2),rot_mat(2,0),rot_mat(2,1),rot_mat(2,2),1.);	
+		Transformation t_rot(
+			rot_mat(0,0),rot_mat(0,1),rot_mat(0,2),
+			rot_mat(1,0),rot_mat(1,1),rot_mat(1,2),
+			rot_mat(2,0),rot_mat(2,1),rot_mat(2,2),1.);
 		std::transform( P.points_begin(), P.points_end(), P.points_begin(), t_rot);
-
 	}
 	//initialization done
 	init = 1;
+}
+
+void Polyhedra::setVertices(const std::vector<Vector3r>& v) {
+	init = false;
+	this->v = v;
+	Initialize();
+}
+
+void Polyhedra::setVertices4(const Vector3r& v0, const Vector3r& v1,const Vector3r& v2,const Vector3r& v3) {
+	init = false;
+	v.resize(4);
+	v[0] = v0;
+	v[1] = v1;
+	v[2] = v2;
+	v[3] = v3;
+	Initialize();
 }
 
 //**************************************************************************
 /* Generator of randomly shaped polyhedron based on Voronoi tessellation*/
 
 void Polyhedra::GenerateRandomGeometry(){
-	srand(seed);	
+	srand(seed);
 
 	vector<CGALpoint> nuclei;
 	nuclei.push_back(CGALpoint(5.,5.,5.));
 	CGALpoint trial;
-	int iter = 0; 
+	unsigned int iter = 0; 
 	bool isOK;
 	//fill box 5x5x5 with randomly located nuclei with restricted minimal mutual distance 0.75 which gives approximate mean mutual distance 1;
 	Real dist_min2 = 0.75*0.75;
@@ -184,32 +207,29 @@ void Polyhedra::GenerateRandomGeometry(){
 			isOK = pow(nuclei[i].x()-trial.x(),2)+pow(nuclei[i].y()-trial.y(),2)+pow(nuclei[i].z()-trial.z(),2) > dist_min2;
 			if (!isOK) break;
 		}
-
 		if(isOK){
 			iter = 0;
 			nuclei.push_back(trial);
-		}				
-	}	
+		}
+	}
 	
-	
-	//perform Voronoi tessellation	
-        nuclei.erase(nuclei.begin());
+	//perform Voronoi tessellation
+	nuclei.erase(nuclei.begin());
 	Triangulation dt(nuclei.begin(), nuclei.end());
 	Triangulation::Vertex_handle zero_point = dt.insert(CGALpoint(5.,5.,5.));
 	v.clear();
-        std::vector<Triangulation::Cell_handle>  ch_cells;
-    	dt.incident_cells(zero_point,std::back_inserter(ch_cells));
-	for(std::vector<Triangulation::Cell_handle>::iterator ci = ch_cells.begin(); ci !=ch_cells.end(); ++ci){
-		v.push_back(FromCGALPoint(dt.dual(*ci))-Vector3r(5.,5.,5.));				
+	std::vector<Triangulation::Cell_handle>  ch_cells;
+ 	dt.incident_cells(zero_point,std::back_inserter(ch_cells));
+	for(auto ci = ch_cells.begin(); ci !=ch_cells.end(); ++ci){
+		v.push_back(FromCGALPoint(dt.dual(*ci))-Vector3r(5.,5.,5.));
 	}
-
 
 	//resize and rotate the voronoi cell
 	Quaternionr Rot(Real(rand())/RAND_MAX,Real(rand())/RAND_MAX,Real(rand())/RAND_MAX,Real(rand())/RAND_MAX);
 	Rot.normalize();
 	for(int i=0; i< (int) v.size();i++) {
 		v[i] = Rot*(Vector3r(v[i][0]*size[0],v[i][1]*size[1],v[i][2]*size[2]));
-	}	
+	}
 	
 	//to avoid patological cases (that should not be present, but CGAL works somehow unpredicable)
 	if (v.size() < 8) {
@@ -234,11 +254,60 @@ vector<vector<int>> Polyhedra::GetSurfaces() const {
 	return ret;
 }
 
+Vector3r Polyhedra::GetCentroid() {
+	Initialize();
+	return centroid;
+}
 
+Vector3r Polyhedra::GetInertia() {
+	Initialize();
+	return inertia;
+}
+
+vector<int> Polyhedra::GetSurfaceTriangulation() {
+	Initialize();
+	return faceTri;
+}
+
+Real Polyhedra::GetVolume() {
+	Initialize();
+	return volume;
+}
+
+Quaternionr Polyhedra::GetOri() {
+	Initialize();
+	return orientation;
+}
+
+void Polyhedra::Clear() {
+	v.clear();
+	P.clear();
+	init = 0;
+	size = Vector3r(1.,1.,1.);
+	faceTri.clear();
+}
+
+bool Polyhedra::IsInitialized() const {
+	return init;
+}
+
+Polyhedron Polyhedra::GetPolyhedron() const {
+	return P;
+}
 //****************************************************************************************
 /* Destructor */
 
 Polyhedra::~Polyhedra(){}
+
+//****************************************************************************************
+Real PolyhedraMat::GetStrength() const {return strength;};
+Real PolyhedraMat::GetStrengthTau() const {return strengthTau;};
+Real PolyhedraMat::GetStrengthSigmaCZ() const {return sigmaCZ;};
+Real PolyhedraMat::GetStrengthSigmaCD() const {return sigmaCD;};
+int PolyhedraMat::GetWeiM() const {return Wei_m;};
+Real PolyhedraMat::GetWeiS0() const {return Wei_S0;};
+Real PolyhedraMat::GetWeiV0() const {return Wei_V0;};
+Real PolyhedraMat::GetP() const {return Wei_P;};
 
 //****************************************************************************************
 /* Destructor */
@@ -256,11 +325,15 @@ void Bo1_Polyhedra_Aabb::go(const shared_ptr<Shape>& ig, shared_ptr<Bound>& bv, 
 	Aabb* aabb=static_cast<Aabb*>(bv.get());
 	//Quaternionr invRot=se3.orientation.conjugate();
 	int N = (int) t->v.size();
-	Vector3r v_g, mincoords(0.,0.,0.), maxcoords(0.,0.,0.);		
+	Vector3r v_g, mincoords(0.,0.,0.), maxcoords(0.,0.,0.);
 	for(int i=0; i<N; i++) {
 		v_g=se3.orientation*t->v[i]; // vertices in global coordinates
 		mincoords = Vector3r(min(mincoords[0],v_g[0]),min(mincoords[1],v_g[1]),min(mincoords[2],v_g[2]));
 		maxcoords = Vector3r(max(maxcoords[0],v_g[0]),max(maxcoords[1],v_g[1]),max(maxcoords[2],v_g[2]));
+	}
+	if (aabbEnlargeFactor>0) {
+		mincoords *= aabbEnlargeFactor;
+		maxcoords *= aabbEnlargeFactor;
 	}
 	aabb->min=se3.position+mincoords;
 	aabb->max=se3.position+maxcoords;
@@ -270,8 +343,9 @@ void Bo1_Polyhedra_Aabb::go(const shared_ptr<Shape>& ig, shared_ptr<Bound>& bv, 
 /* Plotting */
 
 #ifdef YADE_OPENGL
-	#include<lib/opengl/OpenGLWrapper.hpp>
+	#include <lib/opengl/OpenGLWrapper.hpp>
 	bool Gl1_Polyhedra::wire;
+	
 	void Gl1_Polyhedra::go(const shared_ptr<Shape>& cm, const shared_ptr<State>&,bool wire2,const GLViewInfo&)
 	{
 		glMaterialv(GL_FRONT,GL_AMBIENT_AND_DIFFUSE,Vector3r(cm->color[0],cm->color[1],cm->color[2]));
@@ -282,29 +356,41 @@ void Bo1_Polyhedra_Aabb::go(const shared_ptr<Shape>& ig, shared_ptr<Bound>& bv, 
 		if (wire || wire2) { 
 			glDisable(GL_LIGHTING);
 			glBegin(GL_LINES);
-				#define __ONEWIRE(a,b) glVertex3v(t->v[a]);glVertex3v(t->v[b])
-					for(int tri=0; tri < (int) faceTri.size(); tri+=3) {__ONEWIRE(faceTri[tri],faceTri[tri+1]); __ONEWIRE(faceTri[tri],faceTri[tri+2]); __ONEWIRE(faceTri[tri+1],faceTri[tri+2]);}
-				#undef __ONEWIRE
+			for(int tri=0; tri < (int) faceTri.size(); tri+=3) {
+				glOneWire(t, faceTri[tri], faceTri[tri+1]);
+				glOneWire(t, faceTri[tri], faceTri[tri+2]);
+				glOneWire(t, faceTri[tri+1], faceTri[tri+2]);
+			}
 			glEnd();
 		}
 		else
 		{
 			Vector3r centroid = t->GetCentroid();
-			Vector3r faceCenter, n;
 			glDisable(GL_CULL_FACE); glEnable(GL_LIGHTING);
 			glBegin(GL_TRIANGLES);
-				#define __ONEFACE(a,b,c) n=(t->v[b]-t->v[a]).cross(t->v[c]-t->v[a]); n.normalize(); faceCenter=(t->v[a]+t->v[b]+t->v[c])/3.; if((faceCenter-centroid).dot(n)<0)n=-n; glNormal3v(n); glVertex3v(t->v[a]); glVertex3v(t->v[b]); glVertex3v(t->v[c]);
-					for(int tri=0; tri < (int) faceTri.size(); tri+=3) {__ONEFACE(faceTri[tri],faceTri[tri+1],faceTri[tri+2]);}
-				#undef __ONEFACE
+			for(int tri=0; tri < (int) faceTri.size(); tri+=3) {
+				const auto a = faceTri[tri+0];
+				const auto b = faceTri[tri+1];
+				const auto c = faceTri[tri+2];
+				
+				Vector3r n=(t->v[b]-t->v[a]).cross(t->v[c]-t->v[a]);
+				n.normalize();
+				Vector3r faceCenter=(t->v[a]+t->v[b]+t->v[c])/3.;
+				if((faceCenter-centroid).dot(n)<0) n=-n;
+				
+				glNormal3v(n);
+				glVertex3v(t->v[a]);
+				glVertex3v(t->v[b]);
+				glVertex3v(t->v[c]);
+			}
 			glEnd();
 		}
 	}
 
+	void Gl1_PolyhedraGeom::go(const shared_ptr<IGeom>& ig, const shared_ptr<Interaction>&,
+		const shared_ptr<Body>&, const shared_ptr<Body>&, bool) {draw(ig);}
 
-	void Gl1_PolyhedraGeom::go(const shared_ptr<IGeom>& ig, const shared_ptr<Interaction>&, const shared_ptr<Body>&, const shared_ptr<Body>&, bool){ draw(ig);}
-
-	void Gl1_PolyhedraGeom::draw(const shared_ptr<IGeom>& ig){		
-	};
+	void Gl1_PolyhedraGeom::draw(const shared_ptr<IGeom>& ig){};
 
 	GLUquadric* Gl1_PolyhedraPhys::gluQuadric=NULL;
 	Real Gl1_PolyhedraPhys::maxFn;
@@ -314,8 +400,12 @@ void Bo1_Polyhedra_Aabb::go(const shared_ptr<Shape>& ig, shared_ptr<Bound>& bv, 
 	int Gl1_PolyhedraPhys::slices;
 	int Gl1_PolyhedraPhys::stacks;
 
-	void Gl1_PolyhedraPhys::go(const shared_ptr<IPhys>& ip, const shared_ptr<Interaction>& i, const shared_ptr<Body>& b1, const shared_ptr<Body>& b2, bool wireFrame){
-		if(!gluQuadric){ gluQuadric=gluNewQuadric(); if(!gluQuadric) throw runtime_error("Gl1_PolyhedraPhys::go unable to allocate new GLUquadric object (out of memory?)."); }
+	void Gl1_PolyhedraPhys::go(const shared_ptr<IPhys>& ip, const shared_ptr<Interaction>& i,
+		const shared_ptr<Body>& b1, const shared_ptr<Body>& b2, bool wireFrame){
+		if(!gluQuadric){
+			gluQuadric=gluNewQuadric();
+			if(!gluQuadric) throw runtime_error("Gl1_PolyhedraPhys::go unable to allocate new GLUquadric object (out of memory?).");
+		}
 		PolyhedraPhys* np=static_cast<PolyhedraPhys*>(ip.get());
 		shared_ptr<IGeom> ig(i->geom); if(!ig) return; // changed meanwhile?
 		PolyhedraGeom* geom=YADE_CAST<PolyhedraGeom*>(ig.get());
@@ -339,7 +429,7 @@ void Bo1_Polyhedra_Aabb::go(const shared_ptr<Shape>& ig, shared_ptr<Bound>& bv, 
 		Vector3r relPos;
 		relPos=p2-p1;
 		Real dist=relPos.norm();
-				
+		
 		glDisable(GL_CULL_FACE); 
 		glPushMatrix();
 			glTranslatef(p1[0],p1[1],p1[2]);
@@ -356,9 +446,9 @@ void Bo1_Polyhedra_Aabb::go(const shared_ptr<Shape>& ig, shared_ptr<Bound>& bv, 
 //**********************************************************************************
 //!Precompute data needed for rotating tangent vectors attached to the interaction
 
-void PolyhedraGeom::precompute(const State& rbp1, const State& rbp2, const Scene* scene, const shared_ptr<Interaction>& c, const Vector3r& 
-currentNormal, bool isNew, const Vector3r& shift2){
-
+void PolyhedraGeom::precompute(const State& rbp1, const State& rbp2, const Scene* scene,
+	const shared_ptr<Interaction>& c, const Vector3r& currentNormal, bool isNew, const Vector3r& shift2) {
+	
 	if(!isNew) {
 		orthonormal_axis = normal.cross(currentNormal);
 		Real angle = scene->dt*0.5*normal.dot(rbp1.angVel + rbp2.angVel);
@@ -385,14 +475,12 @@ Vector3r& PolyhedraGeom::rotate(Vector3r& shearForce) const {
 	return shearForce;
 }
 
-
 //**********************************************************************************
 /* Material law, physics */
 
 void Ip2_PolyhedraMat_PolyhedraMat_PolyhedraPhys::go( const shared_ptr<Material>& b1
 					, const shared_ptr<Material>& b2
-					, const shared_ptr<Interaction>& interaction)
-{
+					, const shared_ptr<Interaction>& interaction) {
 	if(interaction->phys) return;
 	const shared_ptr<PolyhedraMat>& mat1 = YADE_PTR_CAST<PolyhedraMat>(b1);
 	const shared_ptr<PolyhedraMat>& mat2 = YADE_PTR_CAST<PolyhedraMat>(b2);
@@ -415,7 +503,6 @@ void Ip2_FrictMat_PolyhedraMat_FrictPhys::go(const shared_ptr<Material>& pp1, co
 }
 
 //**************************************************************************************
-#if 1
 Real Law2_PolyhedraGeom_PolyhedraPhys_Volumetric::getPlasticDissipation() {return (Real) plasticDissipation;}
 void Law2_PolyhedraGeom_PolyhedraPhys_Volumetric::initPlasticDissipation(Real initVal) {plasticDissipation.reset(); plasticDissipation+=initVal;}
 Real Law2_PolyhedraGeom_PolyhedraPhys_Volumetric::elasticEnergy()
@@ -429,13 +516,10 @@ Real Law2_PolyhedraGeom_PolyhedraPhys_Volumetric::elasticEnergy()
 	}
 	return energy;
 }
-#endif
-
 
 //**************************************************************************************
 // Apply forces on polyhedrons in collision based on geometric configuration
 bool Law2_PolyhedraGeom_PolyhedraPhys_Volumetric::go(shared_ptr<IGeom>& ig, shared_ptr<IPhys>& ip, Interaction* I){
-
 		if (!I->geom) {return true;} 
 		const shared_ptr<PolyhedraGeom>& contactGeom(YADE_PTR_DYN_CAST<PolyhedraGeom>(I->geom));
 		if(!contactGeom) {return true;} 
@@ -446,49 +530,66 @@ bool Law2_PolyhedraGeom_PolyhedraPhys_Volumetric::go(shared_ptr<IGeom>& ig, shar
 
 		//erase the interaction when aAbB shows separation, otherwise keep it to be able to store previous separating plane for fast detection of separation 
 		Vector3r shift2=scene->cell->hSize*I->cellDist.cast<Real>();
-		if (A->bound->min[0] >= B->bound->max[0]+shift2[0] || B->bound->min[0]+shift2[0] >= A->bound->max[0] || A->bound->min[1] >= B->bound->max[1]+shift2[1] || B->bound->min[1]+shift2[1] >= A->bound->max[1] || A->bound->min[2] >= B->bound->max[2]+shift2[2] || B->bound->min[2]+shift2[2] >= A->bound->max[2])  {
+		if (A->bound->min[0] >= B->bound->max[0]+shift2[0] ||
+				B->bound->min[0]+shift2[0] >= A->bound->max[0] ||
+				A->bound->min[1] >= B->bound->max[1]+shift2[1] ||
+				B->bound->min[1]+shift2[1] >= A->bound->max[1] ||
+				A->bound->min[2] >= B->bound->max[2]+shift2[2] ||
+				B->bound->min[2]+shift2[2] >= A->bound->max[2]) {
 			return false;
 		}
-			
+		
 		//zero penetration depth means no interaction force
-		if(!(contactGeom->equivalentPenetrationDepth > 1E-18) || !(contactGeom->penetrationVolume > 0)) {phys->normalForce = Vector3r(0.,0.,0.); phys->shearForce = Vector3r(0.,0.,0.); return true;} 
+		if(!(contactGeom->equivalentPenetrationDepth > 1E-18) || !(contactGeom->penetrationVolume > 0)) {
+			phys->normalForce = Vector3r(0.,0.,0.);
+			phys->shearForce = Vector3r(0.,0.,0.);
+			return true;
+		}
+    
 		Real prop = std::pow(contactGeom->penetrationVolume,volumePower);
 		Vector3r normalForce=contactGeom->normal*prop*phys->kn;
 
-		//shear force: in case the polyhdras are separated and come to contact again, one should not use the previous shear force
-		if (contactGeom->isShearNew)
-			shearForce = Vector3r::Zero();
-		else
-			shearForce = contactGeom->rotate(shearForce);
+		//shear force: in case the polyhdras are separated and come to contact again, one
+		//should not use the previous shear force
+		if (contactGeom->isShearNew) shearForce = Vector3r::Zero();
+		else shearForce = contactGeom->rotate(shearForce);
 
 		const Vector3r& shearDisp = contactGeom->shearInc;
 		shearForce -= phys->ks*shearDisp;
-                
-		Real maxFs = normalForce.squaredNorm()*std::pow(phys->tangensOfFrictionAngle,2);
+		const Real maxFs = normalForce.squaredNorm()*std::pow(phys->tangensOfFrictionAngle,2);
 
-		if (likely(!scene->trackEnergy  && !traceEnergy)){//Update force but don't compute energy terms (see below))
-			// PFC3d SlipModel, is using friction angle. CoulombCriterion
-			if( shearForce.squaredNorm() > maxFs ){
-				Real ratio = sqrt(maxFs) / shearForce.norm();
-				shearForce *= ratio;}
-		} else {
-			//almost the same with additional Vector3r instatinated for energy tracing, 
-			//duplicated block to make sure there is no cost for the instanciation of the vector when traceEnergy==false
-			if(shearForce.squaredNorm() > maxFs){
-				Real ratio = sqrt(maxFs) / shearForce.norm();
-				Vector3r trialForce=shearForce;//store prev force for definition of plastic slip
-				//define the plastic work input and increment the total plastic energy dissipated
-				shearForce *= ratio;
-				Real dissip=((1/phys->ks)*(trialForce-shearForce)).dot(shearForce);
+		if(shearForce.squaredNorm() > maxFs && maxFs){
+			//PFC3d SlipModel, is using friction angle. CoulombCriterion
+			Real ratio = sqrt(maxFs) / shearForce.norm();
+			if (std::isinf(ratio)) {
+				LOG_DEBUG("shearForce.squaredNorm() > maxFs && maxFs: " << (shearForce.squaredNorm() > maxFs && maxFs)); // the condition should be 1 (we are in this branch), but is actually 0
+				LOG_DEBUG("shearForce: "<<shearForce); // should be (0,0,0)
+				ratio = 0;
+			}
+
+			//Store prev force for definition of plastic slip
+			//Define the plastic work input and increment the total plastic energy dissipated
+			const Vector3r trialForce=shearForce;
+			shearForce *= ratio;
+			
+			if (scene->trackEnergy && traceEnergy) {
+				const Real dissip=((1/phys->ks)*(trialForce-shearForce)).dot(shearForce);
+
 				if (traceEnergy) plasticDissipation += dissip;
 				else if(dissip>0) scene->energy->add(dissip,"plastDissip",plastDissipIx,false);
-			}
-			// compute elastic energy as well
-			scene->energy->add(0.5*(normalForce.squaredNorm()/phys->kn+shearForce.squaredNorm()/phys->ks),"elastPotential",elastPotentialIx,true);
-		}
 
+				// compute elastic energy as well
+				scene->energy->add(0.5*(normalForce.squaredNorm()/phys->kn+shearForce.squaredNorm()/phys->ks),
+					"elastPotential",elastPotentialIx,true);
+			}
+		} else {
+			if (maxFs==0) shearForce = Vector3r::Zero();
+			scene->energy->add(0.5*(normalForce.squaredNorm()/phys->kn+shearForce.squaredNorm()/phys->ks),
+				"elastPotential",elastPotentialIx,true);
+		}
 		Vector3r F = -normalForce-shearForce;	
 		if (contactGeom->equivalentPenetrationDepth != contactGeom->equivalentPenetrationDepth) exit(1);
+		
 		scene->forces.addForce (idA,F);
 		scene->forces.addForce (idB, -F);
 		scene->forces.addTorque(idA, -(A->state->pos-contactGeom->contactPoint).cross(F));
@@ -506,9 +607,8 @@ bool Law2_PolyhedraGeom_PolyhedraPhys_Volumetric::go(shared_ptr<IGeom>& ig, shar
 		fprintf(fin,"A\t%e\t%e\t%e\n",A->state->pos[0],A->state->pos[1],A->state->pos[2]);
 		fprintf(fin,"B\t%e\t%e\t%e\n",B->state->pos[0],B->state->pos[1],B->state->pos[2]);
 		fprintf(fin,"centroid\t%e\t%e\t%e\n",contactGeom->contactPoint[0],contactGeom->contactPoint[1],contactGeom->contactPoint[2]);
-		fclose(fin);	
-		*/		
-
+		fclose(fin);
+		*/
 		//needed to be able to acces interaction forces in other parts of yade
 		phys->normalForce = normalForce;
 		phys->shearForce = shearForce;

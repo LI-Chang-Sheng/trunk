@@ -80,9 +80,16 @@ class MultiScale(object):
       self.__ppde=LinearPDE(domain,numEquations=1,numSolutions=1)
       # use reduced interpolation for pore pressure
       self.__ppde.setReducedOrderOn()
-      
-      self.__upde.getSolverOptions().setSolverMethod(SolverOptions.DIRECT)
-      self.__ppde.getSolverOptions().setSolverMethod(SolverOptions.DIRECT)
+      try:
+            self.__upde.getSolverOptions().setSolverMethod(SolverOptions.DIRECT)
+            self.__ppde.getSolverOptions().setSolverMethod(SolverOptions.DIRECT)
+      except:
+            #import time
+            print "======================================================================="
+            print "For better performance compile python-escript with direct solver method"
+            print "======================================================================="
+            raw_input("Press Enter to continue...")
+            #time.sleep(5)
       self.__upde.setSymmetryOn()
       self.__ppde.setSymmetryOn()
       

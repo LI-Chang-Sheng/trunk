@@ -1,6 +1,15 @@
 """ Author: Ning Guo <ceguo@connect.ust.hk>
     run `mv biaxialSmooth.yade.gz 0.yade.gz`
     to generate initial RVE packing
+
+How to run this script:
+    sudo apt install python-escript
+    cd examples/FEMxDEM
+    export PYTHONPATH="/usr/lib/python-escript:../../py/FEMxDEM"
+    export LD_LIBRARY_PATH=/usr/lib/python-escript/lib
+    ln -s /path/to/yade ../../py/FEMxDEM/yadeimport.py
+    /path/to/yade ./biaxialSmooth.py
+Please amend these instructions if you find that they do not work.
 """
 from esys.escript import *
 from esys.finley import Rectangle
@@ -9,6 +18,18 @@ from esys.escript.pdetools import Projector
 from msFEM2D import MultiScale
 from saveGauss import saveGauss2D
 import time
+import os
+import errno
+
+try:
+   os.mkdir('./result/')
+   os.mkdir('./result/gauss')
+   os.mkdir('./result/vtk')
+   os.mkdir('./result/packing')
+except OSError as exc:
+   if exc.errno != errno.EEXIST:
+      raise
+   pass
 
 vel = -0.0001; confining=-1.e5;
 lx = 0.05; ly = 0.1; # sample size, 50mm by 100mm

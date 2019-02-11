@@ -1,3 +1,5 @@
+#pragma once
+
 #include<pkg/dem/Shop.hpp>
 #include<core/Scene.hpp>
 #include<core/Omega.hpp>
@@ -11,11 +13,7 @@
 #include<lib/pyutil/doc_opts.hpp>
 #include<pkg/dem/ViscoelasticPM.hpp>
 
-#include<numpy/ndarrayobject.h>
-
 namespace py = boost::python;
-
-bool isInBB(Vector3r p, Vector3r bbMin, Vector3r bbMax);
 
 py::tuple negPosExtremeIds(int axis, Real distFactor=1.1);
 
@@ -126,7 +124,7 @@ Real Shop__getPorosity(Real volume=-1);
 Real Shop__getVoxelPorosity(int resolution=200, Vector3r start=Vector3r(0,0,0),Vector3r end=Vector3r(0,0,0));
 
 //Matrix3r Shop__stressTensorOfPeriodicCell(bool smallStrains=false){return Shop::stressTensorOfPeriodicCell(smallStrains);}
-py::tuple Shop__fabricTensor(bool splitTensor=false, bool revertSign=false, Real thresholdForce=NaN);
+py::tuple Shop__fabricTensor(Real cutoff=0.0,bool splitTensor=false, Real thresholdForce=NaN);
 py::tuple Shop__normalShearStressTensors(bool compressionPositive=false, bool splitNormalTensor=false, Real thresholdForce=NaN);
 
 py::list Shop__getStressLWForEachBody();
@@ -142,3 +140,42 @@ void setNewVerticesOfFacet(const shared_ptr<Body>& b, const Vector3r& v1, const 
 py::list intrsOfEachBody();
 
 py::list numIntrsOfEachBody();
+
+/* The 5 following setters are used to workaround a long-standing bug in the c++/python binding which produces a memory leak (see two links below).
+ * https://bugs.launchpad.net/yade/+bug/1041084
+ * https://answers.launchpad.net/yade/+question/253112
+ * It is not in the spirit of Yade Python binding but you can use them if you massively update bodies attributes.
+ * TODO : remove them as soon as the bug is solved.
+*/
+
+/* Set a body position from its id and a new vector3r.
+ *  @param id is the body id
+ *  @param newPos is the desired updated position
+ *  @param axis is the axis along which the position has to be updated (ex: if axis=="xy" and newPos==Vector3r(r0,r1,r2), r2 will be ignored and the position along z will not be updated).
+*/
+void setBodyPosition(int id, Vector3r newPos, string axis="xyz");
+
+/* Set a body velocity from its id and a new vector3r.
+ *  @param id is the body id
+ *  @param newPos is the desired updated velocity
+ *  @param axis is the axis along which the velocity has to be updated (ex: if axis=="xy" and newVel==Vector3r(r0,r1,r2), r2 will be ignored and the velocity along z will not be updated).
+*/
+void setBodyVelocity(int id, Vector3r newVel, string axis="xyz");
+
+/* Set a body orientation from its id and a new Quaternionr.
+ *  @param id is the body id
+ *  @param newOri is the desired updated orientation
+*/
+void setBodyOrientation(int id, Quaternionr newOri);
+
+/* Set a body angular velocity from its id and a new Vector3r.
+ *  @param id is the body id
+ *  @param newAngVel is the desired updated angular velocity
+*/
+void setBodyAngularVelocity(int id, Vector3r newAngVel);
+
+/* Set a body color from its id and a new Vector3r.
+ *  @param id is the body id
+ *  @param newColor is the desired rgb color
+*/
+void setBodyColor(int id, Vector3r newColor);

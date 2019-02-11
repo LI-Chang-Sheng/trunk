@@ -233,6 +233,7 @@ bool KinematicLocalisationAnalyser::DefToFile(const char* output_file_name)
 			//vtk.write_data((float) epsilon.Deviatoric()(1,1)-epsilon.Deviatoric()(0,0));}
 	}
 	vtk.end_data();
+	vtk.close();
 	return true;
 }
 
@@ -447,7 +448,7 @@ NormalDisplacementDistribution(vector<Edge_iterator>& edges, vector<pair<Real,Re
 			ed_it!=ed_end; ++ed_it) {
 		Vh1= (*ed_it)->first->vertex((*ed_it)->second);
 		Vh2= (*ed_it)->first->vertex((*ed_it)->third);
-		branch = Vh1->point()- Vh2->point();
+		branch = Vh1->point().point()- Vh2->point().point();
 		NORMALIZE(branch);
 		if (consecutive)
 			U = TS1->grain(Vh1->info().id()).translation -
@@ -727,9 +728,9 @@ CVector KinematicLocalisationAnalyser::Deplacement(Finite_cells_iterator cell, i
 			CVector meanFieldDisp =CVector(TS0->grain(id).sphere.point().x(), TS0->grain(id).sphere.point().y(), TS0->grain(id).sphere.point().z())-fixedPoint;
 			if (1){//fluctuations
 				meanFieldDisp = CVector(
-				meanFieldDisp[0]*Delta_epsilon(0,0),
-				meanFieldDisp[1]*Delta_epsilon(1,1),
-				meanFieldDisp[2]*Delta_epsilon(2,2));
+				meanFieldDisp[0]*Delta_epsilon(1,1),
+				meanFieldDisp[1]*Delta_epsilon(2,2),
+				meanFieldDisp[2]*Delta_epsilon(3,3));
 			} else meanFieldDisp=CVector(0,0,0);
 			if (consecutive) v = v + TS1->grain(id).translation-meanFieldDisp;
 			else  v = v + (TS1->grain(id).sphere.point() - TS0->grain(id).sphere.point()-meanFieldDisp);
@@ -741,10 +742,11 @@ CVector KinematicLocalisationAnalyser::Deplacement(Finite_cells_iterator cell, i
 
 void KinematicLocalisationAnalyser::Grad_u(Finite_cells_iterator cell, int facet, CVector &V, Tenseur3& T)
 {
-	CVector S = cross_product((cell->vertex(l_vertices[facet][1])->point())
-							  - (cell->vertex(l_vertices[facet][0])->point()),
-							  (cell->vertex(l_vertices[facet][2])->point()) -
-							  (cell->vertex(l_vertices[facet][1])->point())) /2.f;
+	CVector S = cross_product((cell->vertex(l_vertices[facet][1])->point().point())
+							  - (cell->vertex(l_vertices[facet][0])->point().point()),
+							  (cell->vertex(l_vertices[facet][2])->point().point()) -
+							  (cell->vertex(l_vertices[facet][1])->point().point())) /2.f;
+
 	Somme(T, V, S);
 }
 

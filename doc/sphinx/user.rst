@@ -742,7 +742,7 @@ Arbitrary spatial predicates introduced above can be expoited here as well::
 	from yade import pack
 	pred=pack.inAlignedBox(lowerCorner,upperCorner)
 	for b in O.bodies:
-	   if b.shape.name!=Sphere: continue # skip non-spheres
+	   if not instance(b.shape,Sphere): continue # skip non-spheres
 	   # ask the predicate if we are inside
 	   if pred(b.state.pos,b.shape.radius): b.dynamic=False
 
@@ -773,13 +773,13 @@ Applying a force or a torque on a body is done via functions of the :yref:`Force
 
 	O.forces.addF(0,(1,0,0)) #applies for one step
   
-By default, the force applies for one time step only, and is resetted at the beginning of each step. For this reason, imposing a force at the begining of one step will have no effect at all, since it will be immediatly resetted. The only way is to place a :yref:`PyRunner` inside the simulation loop.
+This way, the force applies for one time step only, and is resetted at the beginning of each step. For this reason, imposing a force at the begining of one step will have no effect at all, since it will be immediatly resetted. The only way is to place a :yref:`PyRunner` inside the simulation loop.
 
-Applying the force permanently is possible with an optional argument (in this case it does not matter if the command comes at the begining of the time step)::
+Applying the force permanently is possible with another function (in this case it does not matter if the command comes at the begining of the time step)::
 
-	O.forces.addF(0,(1,0,0),permanent=True) #applies permanently
+	O.forces.setPermF(0,(1,0,0)) #applies permanently
 
-The force  will persist across iterations, until it is overwritten by another call to ``O.forces.addF(id,f,True)`` or erased by ``O.forces.reset(resetAll=True)``. The permanent force on a body can be checked with ``O.forces.permF(id)``.
+The force  will persist across iterations, until it is overwritten by another call to ``O.forces.setPermF(id,f)`` or erased by ``O.forces.reset(resetAll=True)``. The permanent force on a body can be checked with ``O.forces.permF(id)``.
 
 Boundary controllers
 --------------------
@@ -814,7 +814,7 @@ Convenience features
 
 Labeling things
 ----------------
-Engines and functors can define that ``label`` attribute. Whenever the ``O.engines`` sequence is modified, python variables of those names are created/update; since it happens in the ``__builtins__`` namespaces, these names are immediately accessible from anywhere. This was used in :ref:`creating-interactions` to change interaction radius in multiple functors at once.
+Engines and functors can define that ``label`` attribute. Whenever the ``O.engines`` sequence is modified, python variables of those names are created/updated; since it happens in the ``__builtins__`` namespaces, these names are immediately accessible from anywhere. This was used in :ref:`creating-interactions` to change interaction radius in multiple functors at once.
 
 .. warning:: Make sure you do not use label that will overwrite (or shadow) an object that you already use under that variable name. Take care not to use syntactically wrong names, such as "er*452" or "my engine"; only variable names permissible in Python can be used.
 
@@ -862,6 +862,7 @@ Python variable lifetime is limited; in particular, if you save simulation, vari
 :yref:`saveVars<yade.utils.saveVars>` takes dictionary (variable names and their values) and a *mark* (identification string for the variable set); it saves the dictionary inside the simulation. These variables can be re-created (after the simulation was loaded from a XML file, for instance) in the ``yade.params.``\ *mark* namespace by calling :yref:`loadVars<yade.utils.loadVars>` with the same identification *mark*:
 
 .. ipython::
+	:okwarning:
 
 	Yade [3]: a=45; b=pi/3
 
@@ -1432,6 +1433,40 @@ While job is running, the batch system presents progress via simple HTTP server 
 
 	Summary page available at port 9080 as batch is processed (updates every 5 seconds automatically). Possible job statuses are pending, running, done, failed.
 
+Batch execution on Job-based clusters (OAR)
+===========================================
+
+On computation clusters, where there are already a scheduling system, the following script might be usefull. Exactly like yade-batch, it handles assignemnt of parameters value to python variables in simulation script from a parameter table, and job submission. This script is written for `oar-based <http://oar.imag.fr>`_ system , and may be extended to others ones. On those system, usually, a job can't run forever and has a specific duration allocation.
+The whole job submission consists of 3 files:
+
+Simulation script:
+	Regular Yade script, which calls :yref:`readParamsFromTable<yade.utils.readParamsFromTable>` to obtain parameters from parameter table. In order to make the script runnable outside the batch, :yref:`readParamsFromTable<yade.utils.readParamsFromTable>` takes default values of parameters, which might be overridden from the parameter table.
+	
+	:yref:`readParamsFromTable<yade.utils.readParamsFromTable>` knows which parameter file and which line to read by inspecting the ``PARAM_TABLE`` environment variable, set by the batch system.
+
+Parameter table:
+	Simple text file, each line representing one parameter set. This file is read by :yref:`readParamsFromTable<yade.utils.readParamsFromTable>` (using :yref:`TableParamReader<yade.utils.TableParamReader>` class), called from simulation script, as explained above. For better reading of the text file you can make use of tabulators, these will be ignored by :yref:`readParamsFromTable<yade.utils.readParamsFromTable>`. Parameters are not restricted to numerical values. You can also make use of strings by "quoting" them ('  ' may also be used instead of "  "). This can be useful for nominal parameters.
+	
+Job script:
+	Bash script, which call yade on computing nodes. This script eventually creates temp folders, save data to storage server etc. The script must be formatted as a template where some tags will be replaced by specific values at the execution time:
+	* __YADE_COMMAND__ will be replaced by actual yade run command
+	* __YADE_LOGFILE__ will be replaced by log file path (output to stdout)
+	* __YADE_ERRFILE__ will be replaced by error file path (output to stderr)
+	* __YADE_JOBNO__ will be replaced by a identifier composed as (launch script pid)-(job order)
+	* __YADE_JOBID__ will be replaced by a identifier composed of all parameters values
+
+The batch can be run as ::
+
+	yade-oar --oar-project=<your project name> --oar-script=job.sh --oar-walltime=hh:mm:ss parameters.table simulation.py
+
+and it will generate one launch script and submit one job for each parameter table line. A minimal example is found in :ysrc:`examples/oar/params.table` :ysrc:`examples/oar/job.sh` and :ysrc:`examples/oar/sim.py`.
+
+.. note::
+	You have to specify either --oar-walltime or a !WALLTIME column in params.table. !WALLTIME will override --oar-walltime
+	
+.. warning::
+	yade-oar is not compiled by default. Use -DENABLE_OAR=1 option to cmake to enable it.
+
 
 ***************
 Postprocessing
@@ -1466,7 +1501,7 @@ Saving data during the simulation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Paraview is based on the `Visualization Toolkit <http://www.vtk.org>`_, which defines formats for saving various types of data. One of them (with the ``.vtu`` extension) can be written by a special engine :yref:`VTKRecorder`. It is added to the simulation loop::
-
+ 
 	O.engines=[
 		# ...
 		VTKRecorder(iterPeriod=100,recorders=['spheres','facets','colors'],fileName='/tmp/p1-')
@@ -1476,7 +1511,7 @@ Paraview is based on the `Visualization Toolkit <http://www.vtk.org>`_, which de
 * :yref:`fileName<VTKRecorder.fileName>` is the prefix for files being saved. In this case, output files will be named ``/tmp/p1-spheres.0.vtu`` and ``/tmp/p1-facets.0.vtu``, where the number is the number of iteration; many files are created, putting them in a separate directory is advisable.
 * :yref:`recorders<VTKRecorder.recorders>` determines what data to save
 
-:yref:`yade.exporter.VTKExporter` plays a similar role, with the difference that it is more flexible. It will save any user defined variable associated to the bodies.  
+:yref:`yade.export.VTKExporter` plays a similar role, with the difference that it is more flexible. It will save any user defined variable associated to the bodies.
 
 Loading data into Paraview
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1518,6 +1553,17 @@ Another opportunity to display spheres is an using *PointSprite* plugin. This te
 * "Point Sprite -> Scale By -> radii"
 * "Edit Radius Transfer Function -> Proportional -> Multiplier = 1.0 -> Close"
 
+Rendering interactions as force chain
+"""""""""""""""""""""""""""""""""""""""""""
+
+Data saved by ``VTKRecorder`` (the steps below generates cones rather than tubes) or ``export.VTKExporter(...).exportInteractions(what=[('forceN','i.phys.normalForce().norm()')])`` (the steps below generates per interaction tubes with constant radius):
+
+* Load interactions VTP or VTK files
+* Filters -> Cell Data To Point Data
+* Filters -> Tube
+* Set color by "forceN"
+* Set "Vary Radius" to "By Scalar"
+* Set "Radius" and "Radius Factor" such that the result looks OK (in 3D postprocessing tutorial script, Radius=0.0005 and Radius Factor=100 looks reasonably)
 
 Facet transparency
 """""""""""""""""""
@@ -1566,7 +1612,7 @@ Stress fields can be generated by combining the volume returned by TesselationWr
 	TW=TesselationWrapper()
 	TW.computeVolumes()
 	s=bodyStressTensors()
-	stress = s[b.id]**4.*pi/3.*b.shape.radius**3/TW.volume(b.id)
+	stress = s[b.id]*4.*pi/3.*b.shape.radius**3/TW.volume(b.id)
 
 As any other value, the stress can be exported to a vtk file for display in Paraview using :yref:`yade.export.VTKExporter`.
 
@@ -1674,21 +1720,20 @@ Getting help
 =============
 
 
+Questions and answers
+---------------------
+
+Please use Launchpad interface at https://answers.launchpad.net/yade/ for asking questions about Yade. In case you're not familiar with computer oriented discussion lists, please read `this wiki page <https://www.yade-dem.org/wiki/Howtoask>`_ (a Yade-oriented and shortened version of `How To Ask Questions The Smart Way <http://catb.org/~esr/faqs/smart-questions.html>`_) before posting, in order to increase your chances getting help. Do not forget to state what *version* of Yade you use (shown when you start Yade), whether you installed it from source code or a package, what operating system (such as Ubuntu 10.04), and if you have done any local modifications to source code in case of compiled version.
+
 Mailing lists
 --------------
 
-Yade has two mailing-lists. Both are hosted at http://www.launchpad.net and before posting, you must register to Launchpad and subscribe to the list by adding yourself to "team" of the same name running the list.
+In addition to the Q&A Launchpad interface, Yade has two mailing-lists. Both are hosted at http://www.launchpad.net and before posting, you must register to Launchpad and subscribe to the list by adding yourself to "team" of the same name running the list.
 
 yade-users@lists.launchpad.net
-	is general help list for Yade users. Add yourself to `yade-users team <https://launchpad.net/~yade-users>`_ so that you can post messages. `List archive <http://www.mail-archive.com/yade-users@lists.launchpad.net/>`_ is available.
+	is a general discussion list for all Yade users. Add yourself to `yade-users team <https://launchpad.net/~yade-users>`_ so that you can post messages. `List archive <http://www.mail-archive.com/yade-users@lists.launchpad.net/>`_ is available.
 yade-dev@lists.launchpad.net
 	is for discussions about Yade development; you must be member of `yade-dev team <https://launchpad.net/~yade-dev>`_ to post. This list is `archived <http://www.mail-archive.com/yade-dev@lists.launchpad.net/>`_ as well.
-
-Read `How To Ask Questions The Smart Way <http://catb.org/~esr/faqs/smart-questions.html>`_ before posting. Do not forget to state what *version* of yade you use (shown when you start yade), what operating system (such as Ubuntu 10.04), and if you have done any local modifications to source code.
-
-Questions and answers
----------------------
-Launchpad provides interface for giving questions at https://answers.launchpad.net/yade/ which you can use instead of mailing lists; at the moment, it functionality somewhat overlaps with yade-users, but has the advantage of tracking whether a particular question has already been answered.
 
 Wiki
 -----

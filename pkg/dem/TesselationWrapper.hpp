@@ -22,13 +22,13 @@
  * Example usage script :
  *
  *tt=TriaxialTest()
- *tt.generate("test.xml")
- *O.load("test.xml")
- *O.run(100) //for unknown reasons, this procedure crashes at iteration 0
+ *tt.generate("test.yade")
+ *O.load("test.yade")
+ *O.run(100,True) 
  *TW=TesselationWrapper()
- *TW.triangulate() //compute regular Delaunay triangulation, don't construct tesselation
- *TW.computeVolumes() //will silently tesselate the packing
- *TW.volume(10) //get volume associated to sphere of id 10
+ *TW.triangulate() #compute regular Delaunay triangulation, don't construct tesselation
+ *TW.computeVolumes() #will silently tesselate the packing
+ *TW.volume(10) #get volume associated to sphere of id 10
  *
  */
 
@@ -40,6 +40,8 @@ public:
 	typedef Tesselation::VertexInfo							VertexInfo;
 	typedef Tesselation::CellInfo							CellInfo;
 	typedef RTriangulation::Finite_edges_iterator					FiniteEdgesIterator;
+	typedef Tesselation::AlphaFace							AlphaFace;
+	typedef Tesselation::AlphaCap                                                   AlphaCap;
 	
 	
 	
@@ -72,16 +74,24 @@ public:
 	///compute voronoi centers then stop (don't compute anything else)
  	void	computeTesselation (void);
  	void	computeTesselation( double pminx, double pmaxx, double pminy, double pmaxy, double pminz, double pmaxz);
+	
+	void	testAlphaShape(double alpha) {Tes->testAlphaShape(alpha);}
+	boost::python::list getAlphaFaces(double alpha);
+	boost::python::list getAlphaCaps(double alpha, double shrinkedAlpha, bool fixedAlpha);
+	boost::python::list getAlphaVertices(double alpha);
+        boost::python::list getAlphaGraph(double alpha, double shrinkedAlpha, bool fixedAlpha);
+	void applyAlphaForces(Matrix3r stress, double alpha, double shrinkedAlpha, bool fixedAlpha);
 
 	///compute Voronoi vertices + volumes of all cells
 	///use computeTesselation to force update, e.g. after spheres positions have been updated
-  	void	computeVolumes	(void);
+	void	computeVolumes	(void);
 	void	computeDeformations (void) {mma.analyser->computeParticlesDeformation();}
 	///Get volume of the sphere inserted with indentifier "id""
 	double	Volume	(unsigned int id);
 	double	deformation (unsigned int id,unsigned int i,unsigned int j) {
 		if (!mma.analyser->ParticleDeformation.size()) {LOG_ERROR("compute deformations first"); return 0;}
 		if (mma.analyser->ParticleDeformation.size()<id) {LOG_ERROR("id out of bounds"); return 0;}
+		if (i<1 || i>3 || j<1 || j>3) {LOG_ERROR("tensor index must be between 1 and 3"); return 0;}
 		return mma.analyser->ParticleDeformation[id](i,j);}
 
 	/// number of facets in the tesselation (finite branches of the triangulation)
@@ -135,6 +145,12 @@ public:
 	.def("getVolPoroDef",&TesselationWrapper::getVolPoroDef,(boost::python::arg("deformation")=false),"Return a table with per-sphere computed quantities. Include deformations on the increment defined by states 0 and 1 if deformation=True (make sure to define states 0 and 1 consistently).")
 	.def("computeDeformations",&TesselationWrapper::computeDeformations,"compute per-particle deformation. Get it with :yref:`TesselationWrapper::deformation` (id,i,j).")
 	.def("deformation",&TesselationWrapper::deformation,(boost::python::arg("id"),boost::python::arg("i"),boost::python::arg("j")),"Get particle deformation")
+	.def("testAlphaShape",&TesselationWrapper::testAlphaShape,(boost::python::arg("alpha")=0),"transitory function, testing AlphaShape feature")
+	.def("getAlphaFaces",&TesselationWrapper::getAlphaFaces,(boost::python::arg("alpha")=0),"Get the list of alpha faces for a given alpha. If alpha is not specified or null the minimum alpha resulting in a unique connected domain is used")
+        .def("getAlphaCaps",&TesselationWrapper::getAlphaCaps,(boost::python::arg("alpha")=0,boost::python::arg("shrinkedAlpha")=0,boost::python::arg("fixedAlpha")=false),"Get the list of area vectors for the polyhedral caps associated to boundary particles ('extended' alpha-contour). If alpha is not specified or null the minimum alpha resulting in a unique connected domain is used. Taking a smaller 'shrinked' alpha for placing the virtual spheres moves the enveloppe outside the packing, It should be ~(alpha-refRad) typically.")
+	.def("applyAlphaForces",&TesselationWrapper::applyAlphaForces,(boost::python::arg("stress"),boost::python::arg("alpha")=0,boost::python::arg("shrinkedAlpha")=0,boost::python::arg("fixedAlpha")=false),"set permanent forces based on stress using an alpha shape")
+        .def("getAlphaGraph",&TesselationWrapper::getAlphaGraph,(boost::python::arg("alpha")=0,boost::python::arg("shrinkedAlpha")=0,boost::python::arg("fixedAlpha")=false),"Get the list of area vectors for the polyhedral caps associated to boundary particles ('extended' alpha-contour). If alpha is not specified or null the minimum alpha resulting in a unique connected domain is used")
+	.def("getAlphaVertices",&TesselationWrapper::getAlphaVertices,(boost::python::arg("alpha")=0),"Get the list of 'alpha' bounding spheres for a given alpha. If alpha is not specified or null the minimum alpha resulting in a unique connected domain is used. This function is generating a new alpha shape for each call, not to be used intensively.")
 	);
 	DECLARE_LOGGER;
 };

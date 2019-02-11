@@ -9,14 +9,14 @@
 *************************************************************************/
 #pragma once
 
-#include"Shape.hpp"
-#include"Bound.hpp"
-#include"State.hpp"
-#include"Material.hpp"
+#include "Shape.hpp"
+#include "Bound.hpp"
+#include "State.hpp"
+#include "Material.hpp"
 
-#include<lib/base/Math.hpp>
-#include<lib/serialization/Serializable.hpp>
-#include<lib/multimethods/Indexable.hpp>
+#include <lib/base/Math.hpp>
+#include <lib/serialization/Serializable.hpp>
+#include <lib/multimethods/Indexable.hpp>
 
 class Scene;
 class Interaction;
@@ -24,9 +24,9 @@ class Interaction;
 class Body: public Serializable{
 	public:
 		// numerical types for storing ids
-		typedef int id_t;
+		using id_t = int ;
 		// internal structure to hold some interaction of a body; used by InteractionContainer;
-		typedef std::map<Body::id_t, shared_ptr<Interaction> > MapId2IntrT;
+		using MapId2IntrT = std::map<Body::id_t, shared_ptr<Interaction> >;
 		// groupMask type
 
 		// bits for Body::flags
@@ -63,9 +63,9 @@ class Body: public Serializable{
 		boost::python::list py_intrs();
 
 		Body::id_t getId() const {return id;};
-		unsigned int coordNumber();  // Number of neighboring particles
+		const unsigned int coordNumber() const;  // Number of neighboring particles
 
-		mask_t getGroupMask() const {return groupMask; };
+		const mask_t getGroupMask() const {return groupMask; };
 		bool maskOk(int mask) const;
 		bool maskCompatible(int mask) const;
 #ifdef YADE_MASK_ARBITRARY
@@ -86,7 +86,7 @@ class Body: public Serializable{
 		((shared_ptr<State>,state,new State,,"Physical :yref:`state<State>`."))
 		((shared_ptr<Shape>,shape,,,"Geometrical :yref:`Shape`."))
 		((shared_ptr<Bound>,bound,,,":yref:`Bound`, approximating volume for the purposes of collision detection."))
-		((MapId2IntrT,intrs,,Attr::hidden,"Map from otherId to Interaction with otherId, managed by InteractionContainer. NOTE: (currently) does not contain all interactions with this body (only those where otherId>id), since performance issues with such data duplication have not yet been investigated."))
+		((MapId2IntrT,intrs,,Attr::hidden,"Map from otherId to Interaction with otherId, managed by InteractionContainer."))
 		((int,clumpId,Body::ID_NONE,Attr::readonly,"Id of clump this body makes part of; invalid number if not part of clump; see :yref:`Body::isStandalone`, :yref:`Body::isClump`, :yref:`Body::isClumpMember` properties. \n\nNot meant to be modified directly from Python, use :yref:`O.bodies.appendClumped<BodyContainer.appendClumped>` instead."))
 		((long,chain,-1,,"Id of chain to which the body belongs."))
 		((long,iterBorn,-1,,"Step number at which the body was added to simulation."))
@@ -106,7 +106,7 @@ class Body: public Serializable{
 		.add_property("iterBorn",&Body::iterBorn,"Returns step number at which the body was added to simulation.")
 		.add_property("timeBorn",&Body::timeBorn,"Returns time at which the body was added to simulation.")
 		.def_readwrite("chain",&Body::chain,"Returns Id of chain to which the body belongs.")
-		.def("intrs",&Body::py_intrs,"Return all interactions in which this body participates.")
+		.def("intrs",&Body::py_intrs,"Return list of all real interactions in which this body participates.")
 	);
 };
 REGISTER_SERIALIZABLE(Body);

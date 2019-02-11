@@ -61,7 +61,7 @@ FlowBoundingSphere<Tesselation>::FlowBoundingSphere()
 	fluidBulkModulus = 0;
 	tessBasedForce = true;
 	for (int i=0;i<6;i++) boundsIds[i] = 0;
-	minPermLength=-1;
+	minPermLength=1e-6;// multiplier applied on throat radius to define a minimal throat length (escaping coincident points)
 	slipBoundary = false;//no-slip/symmetry conditions on lateral boundaries
 	tolerance = 1e-07;
 	relax = 1.9;
@@ -110,7 +110,7 @@ void FlowBoundingSphere<Tesselation>::averageRelativeCellVelocity()
 				CVector Surfk = cell->info()-cell->neighbor(i)->info();
 				Real area = sqrt ( Surfk.squared_length() );
 				Surfk = Surfk/area;
-                        	CVector branch = cell->vertex ( facetVertices[i][0] )->point() - cell->info();
+                        	CVector branch = cell->vertex ( facetVertices[i][0] )->point().point() - cell->info();
                         	posAvFacet = (Point) cell->info() + ( branch*Surfk ) *Surfk;
 				facetFlowRate = (cell->info().kNorm())[i] * (cell->info().shiftedP() - cell->neighbor (i)->info().shiftedP());
 				totFlowRate += facetFlowRate;
@@ -164,8 +164,8 @@ void FlowBoundingSphere<Tesselation>::averageFluidVelocity()
 	{
 	  if (cell->info().fictious()==0){
 	    for (int i=0;i<4;i++){
-	      velocityVolumes[cell->vertex(i)->info().id()] =  velocityVolumes[cell->vertex(i)->info().id()] + cell->info().averageVelocity()*cell->info().volume();
-	      volumes[cell->vertex(i)->info().id()] = volumes[cell->vertex(i)->info().id()] + cell->info().volume();}
+	      velocityVolumes[cell->vertex(i)->info().id()] =  velocityVolumes[cell->vertex(i)->info().id()] + cell->info().averageVelocity()*std::abs(cell->info().volume());
+	      volumes[cell->vertex(i)->info().id()] = volumes[cell->vertex(i)->info().id()] + std::abs(cell->info().volume());}
 	  }}	    
 	
 	std::ofstream fluid_vel ("Velocity", std::ios::out);
@@ -204,19 +204,29 @@ vector<Real> FlowBoundingSphere<Tesselation>::averageFluidVelocityOnSphere(unsig
 	  if (cell->info().fictious()==0){
 	    for (unsigned int i=0;i<4;i++){
 	      if (cell->vertex(i)->info().id()==Id_sph){
-		velocityVolumes = velocityVolumes + cell->info().averageVelocity()*cell->info().volume();
-		volumes = volumes + cell->info().volume();}}}}
+		velocityVolumes = velocityVolumes + cell->info().averageVelocity()*std::abs(cell->info().volume());
+		volumes = volumes + std::abs(cell->info().volume());}}}}
 		
 	for (int i=0;i<3;i++) result[i] += velocityVolumes[i]/volumes;
 	return result;
 }
+
 template <class Tesselation> 
 double FlowBoundingSphere<Tesselation>::getPorePressure (double X, double Y, double Z)
 {
 	if (noCache && T[!currentTes].Max_id()<=0) return 0;//the engine never solved anything
 	RTriangulation& Tri = T[noCache?(!currentTes):currentTes].Triangulation();
-	CellHandle cell = Tri.locate(Point(X,Y,Z));
+	CellHandle cell = Tri.locate(CGT::Sphere(X,Y,Z));
 	return cell->info().p();
+}
+
+template <class Tesselation> 
+double FlowBoundingSphere<Tesselation>::getPoreTemperature (double X, double Y, double Z)
+{
+	if (noCache && T[!currentTes].Max_id()<=0) return 0;//the engine never solved anything
+	RTriangulation& Tri = T[noCache?(!currentTes):currentTes].Triangulation();
+	CellHandle cell = Tri.locate(CGT::Sphere(X,Y,Z));
+	return cell->info().temp();
 }
 
 template <class Tesselation>
@@ -224,7 +234,7 @@ int FlowBoundingSphere<Tesselation>::getCell (double X, double Y, double Z)
 {
 	if (noCache && T[!currentTes].Max_id()<=0) {cout<<"Triangulation does not exist. Sorry."<<endl; return -1;}
 	RTriangulation& Tri = T[noCache?(!currentTes):currentTes].Triangulation();
-	CellHandle cell = Tri.locate(Point(X,Y,Z));
+	CellHandle cell = Tri.locate(CGT::Sphere(X,Y,Z));
 	return cell->info().id;
 }
 
@@ -245,7 +255,7 @@ void FlowBoundingSphere<Tesselation>::measurePressureProfile(double WallUpy, dou
 	int cell=0;
 	for (int i=0; i<captures; i++){
         for (double Z=min(zMin,zMax); Z<=max(zMin,zMax); Z+=std::abs(Rz)) {
-		permeameter = Tri.locate(Point(X, Y, Z));
+		permeameter = Tri.locate(CGT::Sphere(X, Y, Z));
 		pressure+=permeameter->info().p();
 		cell++;
         }
@@ -264,7 +274,7 @@ double FlowBoundingSphere<Tesselation>::averageSlicePressure(double Y)
   double Rz = (zMax-zMin)/30;
   for (double X=xMin; X<=xMax+Ry/10; X=X+Rx) {
 	for (double Z=zMin; Z<=zMax+Ry/10; Z=Z+Rz) {
-	  P_ave+=Tri.locate(Point(X, Y, Z))->info().p();
+	  P_ave+=Tri.locate(CGT::Sphere(X, Y, Z))->info().p();
 	  n++;
 	}
   }
@@ -280,9 +290,8 @@ double FlowBoundingSphere<Tesselation>::averagePressure()
   for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != Tri.finite_cells_end(); cell++) {
 	P+=cell->info().p();
 	n++;
-	Ppond+=cell->info().p()*cell->info().volume();
-	Vpond+=cell->info().volume();
-  }
+	Ppond+=cell->info().p()*std::abs(cell->info().volume());
+	Vpond+=std::abs(cell->info().volume());}
   P/=n;
   Ppond/=Vpond;
   return Ppond;
@@ -434,46 +443,56 @@ template <class Tesselation>
 CVector FlowBoundingSphere<Tesselation>::cellBarycenter(CellHandle& cell)
 {
 	CVector center ( 0,0,0 );
-	for ( int k=0;k<4;k++ ) center= center + 0.25* (cell->vertex(k)->point()-CGAL::ORIGIN);
+	for ( int k=0;k<4;k++ ) center= center + 0.25* (cell->vertex(k)->point().point()-CGAL::ORIGIN);
 	return center;
 }
 
-template <class Tesselation> 
+template <class Tesselation>
 void FlowBoundingSphere<Tesselation>::interpolate(Tesselation& Tes, Tesselation& NewTes)
 {
-        CellHandle oldCell;
-        RTriangulation& Tri = Tes.Triangulation();
-	for (typename VectorCell::iterator cellIt=NewTes.cellHandles.begin(); cellIt!=NewTes.cellHandles.end(); cellIt++){
-		CellHandle& newCell = *cellIt;
-		if (newCell->info().Pcondition || newCell->info().isGhost) continue;
-		CVector center ( 0,0,0 );
-		if (newCell->info().fictious()==0) for ( int k=0;k<4;k++ ) center= center + 0.25* (Tes.vertex(newCell->vertex(k)->info().id())->point()-CGAL::ORIGIN);
-		else {
-			Real boundPos=0; int coord=0;
-			for ( int k=0;k<4;k++ ) if (!newCell->vertex (k)->info().isFictious) center= center+(1./(4.-newCell->info().fictious()))*(Tes.vertex(newCell->vertex(k)->info().id())->point()-CGAL::ORIGIN);
-			for ( int k=0;k<4;k++ ) if (newCell->vertex (k)->info().isFictious) {
-					coord=boundary (newCell->vertex(k)->info().id()).coordinate;
-					boundPos=boundary (newCell->vertex(k)->info().id()).p[coord];
-					center=CVector(coord==0?boundPos:center[0],coord==1?boundPos:center[1],coord==2?boundPos:center[2]);
+	CellHandle oldCell;    
+	RTriangulation& Tri = Tes.Triangulation();
+	#ifdef YADE_OPENMP
+		const long size = NewTes.cellHandles.size();
+	#pragma omp parallel for num_threads(ompThreads>0 ? ompThreads : 1)
+    	for (long i=0; i<size; i++){
+			CellHandle& newCell = NewTes.cellHandles[i];
+	#else	
+		for (typename VectorCell::iterator cellIt=NewTes.cellHandles.begin(); cellIt!=NewTes.cellHandles.end(); cellIt++){
+			CellHandle& newCell = *cellIt;
+	#endif
+			if (newCell->info().isGhost) continue;
+			CVector center ( 0,0,0 );
+			if (newCell->info().fictious()==0) for ( int k=0;k<4;k++ ) center= center + 0.25* (Tes.vertex(newCell->vertex(k)->info().id())->point().point()-CGAL::ORIGIN);
+			else {
+				Real boundPos=0; int coord=0;
+				for ( int k=0;k<4;k++ ){
+					if (!newCell->vertex (k)->info().isFictious) center= center+(1./(4.-newCell->info().fictious()))*(Tes.vertex(newCell->vertex(k)->info().id())->point().point()-CGAL::ORIGIN);
 				}
+				for ( int k=0;k<4;k++ ) {
+					if (newCell->vertex (k)->info().isFictious) {
+						coord=boundary (newCell->vertex(k)->info().id()).coordinate;
+						boundPos=boundary (newCell->vertex(k)->info().id()).p[coord];
+						center=CVector(coord==0?boundPos:center[0],coord==1?boundPos:center[1],coord==2?boundPos:center[2]);
+					}
+				}
+			}
+			oldCell = Tri.locate(CGT::Sphere(center[0],center[1],center[2]));
+			if (!newCell->info().Pcondition) newCell->info().getInfo(oldCell->info());
+			if (!newCell->info().Tcondition && thermalEngine) newCell->info().temp() = oldCell->info().temp();
 		}
-                oldCell = Tri.locate(Point(center[0],center[1],center[2]));
-		newCell->info().getInfo(oldCell->info());
-//                 newCell->info().p() = oldCell->info().shiftedP();
-        }
-//  	Tes.Clear();//Don't reset to avoid segfault when getting pressure in scripts just after interpolation
 }
 
 template <class Tesselation> 
 Real FlowBoundingSphere<Tesselation>::checkSphereFacetOverlap(const Sphere& v0, const Sphere& v1, const Sphere& v2)
 {
 	//First, check that v0 projection fall between v1 and v2...
-	Real dist=(v0-v1)*(v2-v1);
+	Real dist=(v0.point()-v1.point())*(v2.point()-v1.point());
 	if (dist<0) return 0;
-	Real v1v2=(v2-v1).squared_length();
+	Real v1v2=(v2.point()-v1.point()).squared_length();
 	if (dist>v1v2) return 0;
 	//... then, check distance
-	Real m=(cross_product(v0-v1,v2-v1)).squared_length()/v1v2;
+	Real m=(cross_product(v0.point()-v1.point(),v2.point()-v1.point())).squared_length()/v1v2;
 	if (m<v0.weight()) {
 		Real d=2*sqrt((v0.weight()-m));
 		Real teta=2*acos(sqrt(m/v0.weight()));
@@ -530,14 +549,12 @@ void FlowBoundingSphere<Tesselation>::computePermeability()
 				Sphere& v0 = W[0]->point();
 				Sphere& v1 = W[1]->point();
 				Sphere& v2 = W[2]->point();
-
 				cell->info().facetSphereCrossSections[j]=CVector(
-				   W[0]->info().isFictious ? 0 : 0.5*v0.weight()*acos((v1-v0)*(v2-v0)/sqrt((v1-v0).squared_length()*(v2-v0).squared_length())),
-				   W[1]->info().isFictious ? 0 : 0.5*v1.weight()*acos((v0-v1)*(v2-v1)/sqrt((v1-v0).squared_length()*(v2-v1).squared_length())),
-				   W[2]->info().isFictious ? 0 : 0.5*v2.weight()*acos((v0-v2)*(v1-v2)/sqrt((v1-v2).squared_length()*(v2-v0).squared_length())));
+				   W[0]->info().isFictious ? 0 : 0.5*v0.weight()*acos((v1.point()-v0.point())*(v2.point()-v0.point())/sqrt((v1.point()-v0.point()).squared_length()*(v2.point()-v0.point()).squared_length())),
+				   W[1]->info().isFictious ? 0 : 0.5*v1.weight()*acos((v0.point()-v1.point())*(v2.point()-v1.point())/sqrt((v1.point()-v0.point()).squared_length()*(v2.point()-v1.point()).squared_length())),
+				   W[2]->info().isFictious ? 0 : 0.5*v2.weight()*acos((v0.point()-v2.point())*(v1.point()-v2.point())/sqrt((v1.point()-v2.point()).squared_length()*(v2.point()-v0.point()).squared_length())));
 				//FIXME: it should be possible to skip completely blocked cells, currently the problem is it segfault for undefined areas
 // 				if (cell->info().blocked) continue;//We don't need permeability for blocked cells, it will be set to zero anyway
-
 				pass+=1;
 				CVector l = p1 - p2;
 				distance = sqrt(l.squared_length());
@@ -550,7 +567,7 @@ void FlowBoundingSphere<Tesselation>::computePermeability()
 				}
 				Real fluidArea=0;
 				if (distance!=0) {
-					if (minPermLength>0 && distanceCorrection) distance=max(minPermLength,distance);
+					if (minPermLength>0 && distanceCorrection) distance=max(minPermLength*radius,distance);
 					const CVector& Surfk = cell->info().facetSurfaces[j];
 					Real area = sqrt(Surfk.squared_length());
 					const CVector& crossSections = cell->info().facetSphereCrossSections[j];
@@ -561,16 +578,16 @@ void FlowBoundingSphere<Tesselation>::computePermeability()
 					//take absolute value, since in rare cases the surface can be negative (overlaping spheres)
 					fluidArea=std::abs(area-crossSections[0]-crossSections[1]-crossSections[2]+S0);
 					cell->info().facetFluidSurfacesRatio[j]=fluidArea/area;
-					k=(fluidArea * pow(radius,2)) / (8*viscosity*distance);
-					 meanDistance += distance;
-					 meanRadius += radius;
-					 meanK +=  k*kFactor;
-
-				if (k<0 && debugOut) {surfneg+=1;
-				cout<<"__ k<0 __"<<k<<" "<<" fluidArea "<<fluidArea<<" area "<<area<<" "<<crossSections[0]<<" "<<crossSections[1]<<" "<<crossSections[2] <<" "<<W[0]->info().id()<<" "<<W[1]->info().id()<<" "<<W[2]->info().id()<<" "<<p1<<" "<<p2<<" test "<<endl;}				     
+					// kFactor<0 means we replace Poiseuille by Darcy localy, yielding a particle size-independent bulk conductivity
+					if (kFactor>0) cell->info().kNorm()[j]= kFactor*(fluidArea * pow(radius,2)) / (8*viscosity*distance);
+					else cell->info().kNorm()[j]= -kFactor * area / distance;						
+					meanDistance += distance;
+					meanRadius += radius;
+					meanK +=  (cell->info().kNorm())[j];
+					
+					if (!neighbourCell->info().isGhost) (neighbourCell->info().kNorm())[Tri.mirror_index(cell, j)]= (cell->info().kNorm())[j];
+					if (k<0 && debugOut) {surfneg+=1; cout<<"__ k<0 __"<<k<<" "<<" fluidArea "<<fluidArea<<" area "<<area<<" "<<crossSections[0]<<" "<<crossSections[1]<<" "<<crossSections[2] <<" "<<W[0]->info().id()<<" "<<W[1]->info().id()<<" "<<W[2]->info().id()<<" "<<p1<<" "<<p2<<" test "<<endl;}
 				} else  {cout <<"infinite K1!"<<endl; k = infiniteK;}//Will be corrected in the next loop
-
-				(cell->info().kNorm())[j]= k*kFactor;
 				if (!neighbourCell->info().isGhost) (neighbourCell->info().kNorm())[Tri.mirror_index(cell, j)]= (cell->info().kNorm())[j];
 			}
 		}
@@ -580,7 +597,9 @@ void FlowBoundingSphere<Tesselation>::computePermeability()
 	meanK /= pass;
 	meanRadius /= pass;
 	meanDistance /= pass;
-	Real globalK=kFactor*meanDistance*vPoral/(sSolidTot*8.*viscosity);//An approximate value of macroscopic permeability, for clamping local values below
+	Real globalK;
+	if (kFactor>0) globalK=kFactor*meanDistance*vPoral/(sSolidTot*8.*viscosity);//An approximate value of macroscopic permeability, for clamping local values below
+	else globalK=meanK;
 	if (debugOut) {
 		cout << "PassCompK = " << pass << endl;
 		cout << "meanK = " << meanK << endl;
@@ -663,13 +682,13 @@ vector<double> FlowBoundingSphere<Tesselation>::getConstrictions()
 {
 	RTriangulation& Tri = T[currentTes].Triangulation();
 	vector<double> constrictions;
-	for (FiniteFacetsIterator f_it=Tri.finite_facets_begin(); f_it != Tri.finite_facets_end();f_it++){
-		//in the periodic case, we skip facets with lowest id out of the base period
-		if ( ((f_it->first->info().index <= f_it->first->neighbor(f_it->second)->info().index) && f_it->first->info().isGhost)
-		||  ((f_it->first->info().index >= f_it->first->neighbor(f_it->second)->info().index) && f_it->first->neighbor(f_it->second)->info().isGhost)
-		|| f_it->first->info().index == 0 || f_it->first->neighbor(f_it->second)->info().index == 0) continue;
-		constrictions.push_back(computeEffectiveRadius(f_it->first, f_it->second));
-	}
+	CellHandle neighbourCell; const FiniteCellsIterator& cellEnd = Tri.finite_cells_end();
+	for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != cellEnd; cell++) {
+			if (cell->info().isGhost) continue;// retain only the cells with barycenter in the (0,0,0) period
+			for (int j=0; j<4; j++) {
+				neighbourCell = cell->neighbor(j);
+				if (cell->info().id < neighbourCell->info().id)
+					constrictions.push_back(computeEffectiveRadius(cell, j));}}
 	return constrictions;
 }
 
@@ -678,20 +697,21 @@ vector<Constriction> FlowBoundingSphere<Tesselation>::getConstrictionsFull()
 {
 	RTriangulation& Tri = T[currentTes].Triangulation();
 	vector<Constriction> constrictions;
-	for (FiniteFacetsIterator f_it=Tri.finite_facets_begin(); f_it != Tri.finite_facets_end();f_it++){
-		//in the periodic case, we skip facets with lowest id out of the base period
- 		 if ( ((f_it->first->info().index <= f_it->first->neighbor(f_it->second)->info().index) && f_it->first->info().isGhost)
-		||  ((f_it->first->info().index >= f_it->first->neighbor(f_it->second)->info().index) && f_it->first->neighbor(f_it->second)->info().isGhost)
-		|| f_it->first->info().index == 0 || f_it->first->neighbor(f_it->second)->info().index == 0) continue;
-		vector<double> rn;
-		const CVector& normal = f_it->first->info().facetSurfaces[f_it->second];
-		if (!normal[0] && !normal[1] && !normal[2]) continue;
-		rn.push_back(computeEffectiveRadius(f_it->first, f_it->second));
-		rn.push_back(normal[0]);
-		rn.push_back(normal[1]);
-		rn.push_back(normal[2]);
-		Constriction cons (pair<int,int>(f_it->first->info().index,f_it->first->neighbor(f_it->second)->info().index),rn);
-		constrictions.push_back(cons);
+	CellHandle neighbourCell; const FiniteCellsIterator& cellEnd = Tri.finite_cells_end();
+	for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != cellEnd; cell++) {
+			if (cell->info().isGhost) continue;// retain only the cells with barycenter in the (0,0,0) period
+			for (int j=0; j<4; j++) {
+				neighbourCell = cell->neighbor(j);
+				if (cell->info().id < neighbourCell->info().id) {
+					vector<double> rn;
+					const CVector& normal = cell->info().facetSurfaces[j];
+					if (!normal[0] && !normal[1] && !normal[2]) continue;
+					rn.push_back(computeEffectiveRadius(cell, j));
+					rn.push_back(normal[0]);
+					rn.push_back(normal[1]);
+					rn.push_back(normal[2]);
+					Constriction cons (pair<int,int>(cell->info().id,neighbourCell->info().id),rn);
+					constrictions.push_back(cons);}}
 	}
 	return constrictions;
 }
@@ -702,19 +722,31 @@ double FlowBoundingSphere<Tesselation>::computeEffectiveRadius(CellHandle cell, 
 	RTriangulation& Tri = T[currentTes].Triangulation();
         if (Tri.is_infinite(cell->neighbor(j))) return 0;
 
-	CVector B = cell->vertex(facetVertices[j][1])->point().point()-cell->vertex(facetVertices[j][0])->point().point();
+	Point pos[3]; //spheres pos
+	double r[3]; //spheres radius
+	for (int i=0; i<3; i++) {
+	  pos[i] = cell->vertex(facetVertices[j][i])->point().point();
+	  r[i] = sqrt(cell->vertex(facetVertices[j][i])->point().weight());}
+	
+	double reff=computeEffectiveRadiusByPosRadius(pos[0],r[0],pos[1],r[1],pos[2],r[2]);
+	if (reff<0) return 0;//happens very rarely, with bounding spheres most probably
+	//if the facet involves one ore more bounding sphere, we return R with a minus sign
+	if (cell->vertex(facetVertices[j][2])->info().isFictious || cell->vertex(facetVertices[j][1])->info().isFictious || cell->vertex(facetVertices[j][2])->info().isFictious) return -reff;
+	else return reff;
+}
+////compute inscribed radius independently by position and radius
+template <class Tesselation> 
+double FlowBoundingSphere<Tesselation>::computeEffectiveRadiusByPosRadius(const Point& posA, const double& rA, const Point& posB, const double& rB, const Point& posC, const double& rC)
+{
+	CVector B = posB - posA;
 	CVector x = B/sqrt(B.squared_length());
-	CVector C = cell->vertex(facetVertices[j][2])->point().point()-cell->vertex(facetVertices[j][0])->point().point();
+	CVector C = posC - posA;
 	CVector z = CGAL::cross_product(x,C);
 	CVector y = CGAL::cross_product(x,z);
 	y = y/sqrt(y.squared_length());
 
 	double b1[2]; b1[0] = B*x; b1[1] = B*y;
 	double c1[2]; c1[0] = C*x; c1[1] = C*y;
-
-	double rA = sqrt(cell->vertex(facetVertices[j][0])->point().weight());
-	double rB = sqrt(cell->vertex(facetVertices[j][1])->point().weight());
-	double rC = sqrt(cell->vertex(facetVertices[j][2])->point().weight());
 
 	double A = ((pow(rA,2))*(1-c1[0]/b1[0])+((pow(rB,2)*c1[0])/b1[0])-pow(rC,2)+pow(c1[0],2)+pow(c1[1],2)-((pow(b1[0],2)+pow(b1[1],2))*c1[0]/b1[0]))/(2*c1[1]-2*b1[1]*c1[0]/b1[0]);
 	double BB = (rA-rC-((rA-rB)*c1[0]/b1[0]))/(c1[1]-b1[1]*c1[0]/b1[0]);
@@ -729,10 +761,7 @@ double FlowBoundingSphere<Tesselation>::computeEffectiveRadius(CellHandle cell, 
 
 	if ((pow(b,2)-4*a*c)<0){cout << "NEGATIVE DETERMINANT" << endl; }
 	double reff = (-b+sqrt(pow(b,2)-4*a*c))/(2*a);
-	if (reff<0) return 0;//happens very rarely, with bounding spheres most probably
-	//if the facet involves one ore more bounding sphere, we return R with a minus sign
-	if (cell->vertex(facetVertices[j][2])->info().isFictious || cell->vertex(facetVertices[j][1])->info().isFictious || cell->vertex(facetVertices[j][2])->info().isFictious) return -reff;
-	else return reff;
+	return reff;
 }
 
 template <class Tesselation> 
@@ -747,7 +776,7 @@ double FlowBoundingSphere<Tesselation>::computeHydraulicRadius(CellHandle cell, 
 	RTriangulation& Tri = T[currentTes].Triangulation();
         if (Tri.is_infinite(cell->neighbor(j))) return 0;
 	double Vpore = this->volumePoreVoronoiFraction(cell, j);
-	double Ssolid = this->surfaceSolidPore(cell, j, slipBoundary, /*reuse the same facet data*/ true);
+	double Ssolid = this->surfaceSolidThroat(cell, j, slipBoundary, /*reuse the same facet data*/ true);
 
 	//handle symmetry (tested ok)
 	if (slipBoundary && facetNFictious>0) {
@@ -786,7 +815,7 @@ void FlowBoundingSphere<Tesselation>::initializePressure( double pZero )
         
         IPCells.clear();
         for (unsigned int n=0; n<imposedP.size();n++) {
-		CellHandle cell=Tri.locate(imposedP[n].first);
+		CellHandle cell=Tri.locate(CGT::Sphere(imposedP[n].first,0));
 		//check redundancy
 		for (unsigned int kk=0;kk<IPCells.size();kk++){
 			if (cell==IPCells[kk]) cerr<<"Two imposed pressures fall in the same cell."<<endl;
@@ -798,7 +827,7 @@ void FlowBoundingSphere<Tesselation>::initializePressure( double pZero )
 
 	IFCells.clear();
 	for (unsigned int n=0; n<imposedF.size();n++) {
-		CellHandle cell=Tri.locate(imposedF[n].first);
+		CellHandle cell=Tri.locate(CGT::Sphere(imposedF[n].first,0));
 		//check redundancy
 		for (unsigned int kk=0;kk<IPCells.size();kk++){
 			if (cell==IPCells[kk]) cerr<<"Both flux and pressure are imposed in the same cell."<<endl;
@@ -807,6 +836,59 @@ void FlowBoundingSphere<Tesselation>::initializePressure( double pZero )
 		cell->info().Pcondition=false;}
 
 }
+
+
+template <class Tesselation> 
+void FlowBoundingSphere<Tesselation>::initializeTemperatures( double tZero )
+{
+        RTriangulation& Tri = T[currentTes].Triangulation();
+        FiniteCellsIterator cellEnd = Tri.finite_cells_end();
+
+        for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != cellEnd; cell++){
+		if (!cell->info().Tcondition && !cell->info().isGhost) cell->info().temp() = tZero;
+	}
+        for (int bound=0; bound<6;bound++) {
+                int& id = *boundsIds[bound];
+		thermalBoundingCells[bound].clear();
+		if (id<0) continue;
+                ThermalBoundary& bi = thermalBoundary(id);
+                if (!bi.fluxCondition) {
+                        VectorCell tmpCells;
+                        tmpCells.resize(10000);
+                        VCellIterator cells_it = tmpCells.begin();
+                        VCellIterator cells_end = Tri.incident_cells(T[currentTes].vertexHandles[id],cells_it);
+                        for (VCellIterator it = tmpCells.begin(); it != cells_end; it++){
+				(*it)->info().temp() = bi.value;(*it)->info().Tcondition=true;
+				thermalBoundingCells[bound].push_back(*it);
+			}
+                }
+        }
+ //       if (ppval && pxpos) applyUserDefinedPressure(Tri,*pxpos,*ppval);
+        
+ //       ITCells.clear();
+ //       for (unsigned int n=0; n<imposedT.size();n++) {
+//		CellHandle cell=Tri.locate(CGT::Sphere(imposedT[n].first,0));
+		//check redundancy
+//		for (unsigned int kk=0;kk<IPCells.size();kk++){
+//			if (cell==IPCells[kk]) cerr<<"Two imposed pressures fall in the same cell."<<endl;
+//			else if  (cell->info().Pcondition) cerr<<"Imposed pressure fall in a boundary condition."<<endl;}
+//		ITCells.push_back(cell);
+//		cell->info().temp()=imposedT[n].second;
+//		cell->info().Tcondition=true;}
+//	pressureChanged=false;
+
+//	IFCells.clear();
+//	for (unsigned int n=0; n<imposedF.size();n++) {
+//		CellHandle cell=Tri.locate(CGT::Sphere(imposedF[n].first,0));
+		//check redundancy
+//		for (unsigned int kk=0;kk<IPCells.size();kk++){
+//			if (cell==IPCells[kk]) cerr<<"Both flux and pressure are imposed in the same cell."<<endl;
+//			else if  (cell->info().Pcondition) cerr<<"Imposed flux fall in a pressure boundary condition."<<endl;}
+//		IFCells.push_back(cell);
+//		cell->info().Pcondition=false;}
+
+}
+
 
 template <class Tesselation> 
 bool FlowBoundingSphere<Tesselation>::reApplyBoundaryConditions()
@@ -895,7 +977,7 @@ void FlowBoundingSphere<Tesselation>::gaussSeidel(Real dt)
 						} else {							
 						/// INCOMPRESSIBLE 
 							m += (cell->info().kNorm())[j2] * cell->neighbor(j2)->info().p();
-							if ( isinf(m) && j<10 ) cout << "(cell->info().kNorm())[j2] = " << (cell->info().kNorm())[j2] << " cell->neighbor(j2)->info().p() = " << cell->neighbor(j2)->info().p() << endl;
+							if ( std::isinf(m) && j<10 ) cout << "(cell->info().kNorm())[j2] = " << (cell->info().kNorm())[j2] << " cell->neighbor(j2)->info().p() = " << cell->neighbor(j2)->info().p() << endl;
 							if (j==0) n += (cell->info().kNorm())[j2];
 						}  
 					}
@@ -1096,31 +1178,214 @@ void FlowBoundingSphere<Tesselation>::displayStatistics()
 
 	num_particles = real;
 }
+
+
 template <class Tesselation> 
-void FlowBoundingSphere<Tesselation>::saveVtk(const char* folder)
+void FlowBoundingSphere<Tesselation>::saveVtk(const char* folder, bool withBoundaries)
 {
-	if (noCache && T[!currentTes].Max_id()<=0) {cout<<"Triangulation does not exist. Sorry."<<endl; return;}
-	RTriangulation& Tri = T[noCache?(!currentTes):currentTes].Triangulation();
-        static unsigned int number = 0;
+	vector<int> allIds;//an ordered list of cell ids (from begin() to end(), for vtk table lookup), some ids will appear multiple times since boundary cells are splitted into multiple tetrahedra 
+	vector<int> fictiousN;
+	
+	
+	static unsigned int number = 0;
         char filename[250];
 	mkdir(folder, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
         sprintf(filename,"%s/out_%d.vtk",folder,number++);
-	int firstReal=-1;
+	
+	basicVTKwritter vtkWrite(0,0);
+	saveMesh(vtkWrite,withBoundaries,allIds,fictiousN,filename);
+	
+	RTriangulation& Tri = T[noCache?(!currentTes):currentTes].Triangulation();
+	if (permeabilityMap){
+		vtkWrite.begin_data("Permeability",CELL_DATA,SCALARS,FLOAT);
+		for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != Tri.finite_cells_end(); ++cell) {
+			bool isDrawable = cell->info().isReal() && cell->vertex(0)->info().isReal() && cell->vertex(1)->info().isReal() && cell->vertex(2)->info().isReal()  && cell->vertex(3)->info().isReal();
+			if (isDrawable){vtkWrite.write_data(cell->info().s);}
+		}
+		vtkWrite.end_data();}
+	else{//normal case
+		vtkWrite.begin_data("Pressure",CELL_DATA,SCALARS,FLOAT);
+		for (unsigned kk=0; kk<allIds.size(); kk++) vtkWrite.write_data(tesselation().cellHandles[allIds[kk]]->info().p());
+		vtkWrite.end_data();
 
+		if (thermalEngine) {
+			vtkWrite.begin_data("Temperature",CELL_DATA,SCALARS,FLOAT);
+			for (unsigned kk=0; kk<allIds.size(); kk++){
+				bool isDrawable = tesselation().cellHandles[allIds[kk]]->info().isReal() && tesselation().cellHandles[allIds[kk]]->vertex(0)->info().isReal() && tesselation().cellHandles[allIds[kk]]->vertex(1)->info().isReal() && tesselation().cellHandles[allIds[kk]]->vertex(2)->info().isReal() && tesselation().cellHandles[allIds[kk]]->vertex(3)->info().isReal();
+				 if(isDrawable) vtkWrite.write_data(tesselation().cellHandles[allIds[kk]]->info().temp());
+			vtkWrite.end_data();
+			}
+			
+			vtkWrite.begin_data("Tcondition",CELL_DATA,SCALARS,FLOAT);
+			for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != Tri.finite_cells_end(); ++cell) {
+				bool isDrawable = cell->info().isReal() && cell->vertex(0)->info().isReal() && cell->vertex(1)->info().isReal() && cell->vertex(2)->info().isReal() && cell->vertex(3)->info().isReal();
+				if (isDrawable){vtkWrite.write_data(cell->info().Tcondition);}
+			}
+			vtkWrite.end_data();
+		}
+			
+		vtkWrite.begin_data("fictious",CELL_DATA,SCALARS,INT);
+		for (unsigned kk=0; kk<allIds.size(); kk++) vtkWrite.write_data(fictiousN[kk]);
+		vtkWrite.end_data();
+
+		vtkWrite.begin_data("id",CELL_DATA,SCALARS,INT);
+		for (unsigned kk=0; kk<allIds.size(); kk++) vtkWrite.write_data(allIds[kk]);
+		vtkWrite.end_data();
+
+		vtkWrite.begin_data("Velocity",CELL_DATA,VECTORS,FLOAT);
+		for (unsigned kk=0; kk<allIds.size(); kk++) vtkWrite.write_data(tesselation().cellHandles[allIds[kk]]->info().averageVelocity()[0],
+			tesselation().cellHandles[allIds[kk]]->info().averageVelocity()[1],tesselation().cellHandles[allIds[kk]]->info().averageVelocity()[2]);
+		vtkWrite.end_data();
+	}
+	vtkWrite.close();
+
+}
+
+template <class Tesselation> 
+void FlowBoundingSphere<Tesselation>::saveMesh(basicVTKwritter& vtkfile, bool withBoundaries,vector<int>& allIds, vector<int>& fictiousN, const char* filename)
+{
+	
+	/*
+	Most of this code is actually to handle the special cases along the bounding walls/spheres, where irregular polyhedra needs to be decomposed in many tetrahedra for vtk display.
+	- fictious=1: take a triangular (pseudo-)prism formed by 3 spheres and 3 projections and split it in 3 tetrahedra
+	- fictious=2: take a rectangular (pseudo-)prism formed by 2 spheres and 6 projections and split it in 6 tetrahedra
+	- fictious=3: take a rectangular (pseudo-)prism formed by 1 sphere and 7 projections and split it in 6 tetrahedra
+	"extraVertices" and "extraPoly" contains the additional points and polyhedra.  
+	
+	*/
+
+	if (noCache && T[!currentTes].Max_id()<=0) {cout<<"Triangulation does not exist. Sorry."<<endl; return;}
+	RTriangulation& Tri = T[noCache?(!currentTes):currentTes].Triangulation();
+        int firstReal=-1;
+	
+	vector<pair<vector<int>,unsigned> > extraPoly; //for fictious cells on the boundaries
+	vector<CGT::CVector > extraVertices; //for projections of real vertices on the boundaries
+
+	vector<int> fictiousNExtra;	
 	//count fictious vertices and cells
 	vtkInfiniteVertices=vtkInfiniteCells=0;
+	unsigned extraV=0, extraCells=0;
+	
  	FiniteCellsIterator cellEnd = Tri.finite_cells_end();
         for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != cellEnd; cell++) {
-		bool isDrawable = cell->info().isReal() && cell->vertex(0)->info().isReal() && cell->vertex(1)->info().isReal() && cell->vertex(2)->info().isReal()  && cell->vertex(3)->info().isReal();
-		if (!isDrawable) vtkInfiniteCells+=1;
+		bool fictV [4];
+		for (unsigned k=0; k<4; k++) fictV[k] = !cell->vertex(k)->info().isReal();
+		unsigned fict = unsigned(fictV[0]) + unsigned(fictV[1]) + unsigned(fictV[2]) + unsigned(fictV[3]);
+		if (fict==0) {
+			allIds.push_back(cell->info().id);
+			fictiousN.push_back(0);
+		} else {
+			vtkInfiniteCells+=1;
+			if (withBoundaries) {
+				int newId = -(extraVertices.size()+1);//negative ids starting from -1 for fictious vertices
+				switch (fict) {
+					case 1:{
+						int k=0;
+						for (;k<4; k++) if (fictV[k]) break;//find the fictious one
+						vector<int> poly;
+						for (int j=0; j<4; j++) {
+							if (!fictV[j]) {
+								Real dist = (cell->vertex(k)->point().point()-cell->vertex(j)->point().point()).squared_length();
+								dist = 1. - sqrt(cell->vertex(k)->point().weight()/dist);
+								CVector C1C2 = dist*(cell->vertex(k)->point().point()-cell->vertex(j)->point().point());
+								extraVertices.push_back((cell->vertex(j)->point().point()+ C1C2)-CGAL::ORIGIN );
+								poly.push_back(cell->vertex(j)->info().id());}
+						}
+						// then the real ones
+						poly.push_back(newId--); poly.push_back(newId--); poly.push_back(newId--);
+						// store the extra poly for later use and update counters
+						extraPoly.push_back(pair<vector<int>,int> (poly,cell->info().id) );//
+						for (int kk=0;kk<3;kk++) fictiousNExtra.push_back(1);
+						extraCells+=3; extraV+=3;} break;
+					case 2: {
+						unsigned k=0; unsigned k1=0, k2=0,s1=0,s2=0; 
+						for (;k<4; k++) if (fictV[k]) {k1=k; k++; break;}//find the first fictious
+						for (;k<4; k++) if (fictV[k]) {k2=k; k++; break;}//find the second fictious					
+						for (k=0; k<4; k++) if (!fictV[k]) {s1=k; k++; break;}//find the first real
+						for (;k<4; k++) if (!fictV[k]) {s2=k; k++; break;}//find the second real
+						
+						CVector c1 = cell->vertex(s1)->point().point()-CGAL::ORIGIN;
+						CVector c2 = cell->vertex(s2)->point().point()-CGAL::ORIGIN;
+						CVector v11 = cell->vertex(k1)->point().point()-cell->vertex(s1)->point().point();
+						CVector v21 = cell->vertex(k1)->point().point()-cell->vertex(s2)->point().point();
+						CVector v12 = cell->vertex(k2)->point().point()-cell->vertex(s1)->point().point();
+						CVector v22 = cell->vertex(k2)->point().point()-cell->vertex(s2)->point().point();
+						CVector v13;
+						CVector v23;
+						
+						Real dist11 = v11.squared_length();
+						dist11 = 1. - sqrt(cell->vertex(k1)->point().weight()/dist11);
+						v11=v11*dist11;
+						Real dist21 = v21.squared_length();
+						dist21 = 1. - sqrt(cell->vertex(k1)->point().weight()/dist21);
+						v21=v21*dist21;
+						Real dist12 = v12.squared_length();
+						dist12 = 1. - sqrt(cell->vertex(k2)->point().weight()/dist12);
+						v12=v12*dist12;
+						Real dist22 = v22.squared_length();
+						dist22 = 1. - sqrt(cell->vertex(k2)->point().weight()/dist22);
+						v22=v22*dist22;
+						v13=v12+v11;
+						v23=v22+v21;
+						vector<int> poly1,poly2;//split the cube in two prisms
+						poly1.push_back(cell->vertex(s1)->info().id()); poly2.push_back(cell->vertex(s1)->info().id());
+						extraVertices.push_back(c1+v13); poly1.push_back(newId); poly2.push_back(newId--);
+						extraVertices.push_back(c1+v11); poly1.push_back(newId--);
+						extraVertices.push_back(c1+v12); poly2.push_back(newId--);
+						poly1.push_back(cell->vertex(s2)->info().id()); poly2.push_back(cell->vertex(s2)->info().id());
+						extraVertices.push_back(c2+v23); poly1.push_back(newId); poly2.push_back(newId--);
+						extraVertices.push_back(c2+v21); poly1.push_back(newId--);
+						extraVertices.push_back(c2+v22); poly2.push_back(newId--);
+						extraPoly.push_back(pair<vector<int>,int> (poly1,cell->info().id) );
+						extraPoly.push_back(pair<vector<int>,int> (poly2,cell->info().id) );
+						for (int kk=0;kk<6;kk++) fictiousNExtra.push_back(2);
+						extraCells+=6; extraV+=6;}
+						break;
+
+					case 3:{
+						unsigned s1=0, k1=0,k2=0,k3=0;
+						for (unsigned k=0; k<4; k++) if (!fictV[k]) {s1=k; k++; break;}//find the first real
+						k1= facetVertices[s1][0];//handy...
+						k3= facetVertices[s1][1];
+						k2= facetVertices[s1][2];
+
+						CVector c = cell->vertex(s1)->point().point()-CGAL::ORIGIN;
+						CVector v11 = cell->vertex(k1)->point().point()-cell->vertex(s1)->point().point();
+						CVector v12 = cell->vertex(k2)->point().point()-cell->vertex(s1)->point().point();
+						CVector v13 = cell->vertex(k3)->point().point()-cell->vertex(s1)->point().point();
+						
+						Real dist11 = v11.squared_length(); dist11 = 1. - sqrt(cell->vertex(k1)->point().weight()/dist11); v11=v11*dist11;
+						Real dist12 = v12.squared_length(); dist12 = 1. - sqrt(cell->vertex(k2)->point().weight()/dist12); v12=v12*dist12;
+						Real dist13 = v13.squared_length(); dist13 = 1. - sqrt(cell->vertex(k3)->point().weight()/dist13); v13=v13*dist13;					
+						CVector v1v2 = v11+v12;
+						
+						vector<int> poly1,poly2;//split the cube in two prisms
+						poly1.push_back(cell->vertex(s1)->info().id()); poly2.push_back(cell->vertex(s1)->info().id());
+						extraVertices.push_back(c+v1v2); poly1.push_back(newId); poly2.push_back(newId--);
+						extraVertices.push_back(c+v11); poly1.push_back(newId--);
+						extraVertices.push_back(c+v12); poly2.push_back(newId--);
+						extraVertices.push_back(c+v13); poly1.push_back(newId); poly2.push_back(newId--);
+						extraVertices.push_back(c+v1v2+v13); poly1.push_back(newId); poly2.push_back(newId--);
+						extraVertices.push_back(c+v11+v13); poly1.push_back(newId--);
+						extraVertices.push_back(c+v12+v13); poly2.push_back(newId--);
+						
+						extraPoly.push_back(pair<vector<int>,int> (poly1,cell->info().id) );
+						extraPoly.push_back(pair<vector<int>,int> (poly2,cell->info().id) );
+						for (int kk=0;kk<6;kk++) fictiousNExtra.push_back(3);
+						extraCells+=6; extraV+=7;}
+						break;
+				}
+			}
+		}
 	}
+	fictiousN.insert(fictiousN.end(),fictiousNExtra.begin(),fictiousNExtra.end());
+	
 	for (FiniteVerticesIterator v = Tri.finite_vertices_begin(); v != Tri.finite_vertices_end(); ++v) {
                 if (!v->info().isReal()) vtkInfiniteVertices+=1;
                 else if (firstReal==-1) firstReal=vtkInfiniteVertices;}
 
-        basicVTKwritter vtkfile((unsigned int) Tri.number_of_vertices()-vtkInfiniteVertices, (unsigned int) Tri.number_of_finite_cells()-vtkInfiniteCells);
-
-        vtkfile.open(filename,"test");
+       	vtkfile.setNums((unsigned int) Tri.number_of_vertices()-vtkInfiniteVertices+extraV, (unsigned int) Tri.number_of_finite_cells()-vtkInfiniteCells+extraCells);
+        vtkfile.open(filename,"Generated by Yade-dem.org");
 	
 	//!TEMPORARY FIX:
 	//paraview needs zero-based vertex ids (from 0 ... numRealVertices)
@@ -1144,6 +1409,13 @@ void FlowBoundingSphere<Tesselation>::saveVtk(const char* folder)
 			numVertices += 1;
 		}
 	}
+	// now the extra vertices
+	int extra=-1;
+	int numAllVertices=numVertices;
+	for (auto pt = extraVertices.begin(); pt != extraVertices.end(); pt++) {
+			vtkfile.write_point((double)(*pt)[0],(double)(*pt)[1],(double)(*pt)[2]);
+			vertexIdMap[extra--] = numAllVertices++;
+	}
 	vtkfile.end_vertices();
 	
 	vtkfile.begin_cells();
@@ -1159,31 +1431,32 @@ void FlowBoundingSphere<Tesselation>::saveVtk(const char* folder)
 			else vtkfile.write_cell(id0, id1, id2, id3);
 		}
 	}
-        vtkfile.end_cells();
-
-	if (permeabilityMap){
-	vtkfile.begin_data("Permeability",CELL_DATA,SCALARS,FLOAT);
-	for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != Tri.finite_cells_end(); ++cell) {
-		bool isDrawable = cell->info().isReal() && cell->vertex(0)->info().isReal() && cell->vertex(1)->info().isReal() && cell->vertex(2)->info().isReal()  && cell->vertex(3)->info().isReal();
-		if (isDrawable){vtkfile.write_data(cell->info().s);}
+	// now the extra tetrahedra
+	int id4,id5;
+	for (auto p = extraPoly.begin(); p!=extraPoly.end(); p++) {
+		switch (p->first.size()) {
+			case 6:
+			allIds.push_back(p->second); allIds.push_back(p->second); allIds.push_back(p->second);
+			if (minId != 0) {
+				id0 = p->first[0]; id1 = p->first[1]; id2 = p->first[2];
+				id3 = p->first[3]; id4 = p->first[4]; id5 = p->first[5];// extra vertices, negative ids
+				vtkfile.write_cell(vertexIdMap[id0],vertexIdMap[id3],vertexIdMap[id4],vertexIdMap[id5]);
+				vtkfile.write_cell(vertexIdMap[id0],vertexIdMap[id5],vertexIdMap[id1],vertexIdMap[id2]);
+				vtkfile.write_cell(vertexIdMap[id0],vertexIdMap[id1],vertexIdMap[id4],vertexIdMap[id5]);}
+			else {
+				//real spheres ave positive ids, fictious ones ahave negative, that's how we guess the rank in the liste
+				id0 = p->first[0]>0? p->first[0]-firstReal : numVertices-p->first[0]-1;
+				id1 = p->first[1]>0? p->first[1]-firstReal : numVertices-p->first[1]-1;
+				id2 = p->first[2]>0? p->first[2]-firstReal : numVertices-p->first[2]-1;
+				id3 = p->first[3]>0? p->first[3]-firstReal : numVertices-p->first[3]-1;
+				id4 = p->first[4]>0? p->first[4]-firstReal : numVertices-p->first[4]-1;
+				id5 = p->first[5]>0? p->first[5]-firstReal : numVertices-p->first[5]-1;
+				vtkfile.write_cell(id0, id3, id4, id5);
+				vtkfile.write_cell(id0, id5, id1, id2);
+				vtkfile.write_cell(id0, id1, id4, id5);}
+		}
 	}
-	vtkfile.end_data();}
-	else{
-	vtkfile.begin_data("Pressure",CELL_DATA,SCALARS,FLOAT);
-	for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != Tri.finite_cells_end(); ++cell) {
-		bool isDrawable = cell->info().isReal() && cell->vertex(0)->info().isReal() && cell->vertex(1)->info().isReal() && cell->vertex(2)->info().isReal()  && cell->vertex(3)->info().isReal();
-		if (isDrawable){vtkfile.write_data(cell->info().p());}
-	}
-	vtkfile.end_data();}
-
-	if (1){
-	averageRelativeCellVelocity();
-	vtkfile.begin_data("Velocity",CELL_DATA,VECTORS,FLOAT);
-	for (FiniteCellsIterator cell = Tri.finite_cells_begin(); cell != Tri.finite_cells_end(); ++cell) {
-		bool isDrawable = cell->info().isReal() && cell->vertex(0)->info().isReal() && cell->vertex(1)->info().isReal() && cell->vertex(2)->info().isReal()  && cell->vertex(3)->info().isReal();
-		if (isDrawable){vtkfile.write_data(cell->info().averageVelocity()[0],cell->info().averageVelocity()[1],cell->info().averageVelocity()[2]);}
-	}
-	vtkfile.end_data();}
+	vtkfile.end_cells();
 }
 
 #ifdef XVIEW
@@ -1373,6 +1646,20 @@ Real FlowBoundingSphere<Tesselation>::computeNormalLubricationForce(const Real& 
 		return normLubF;
 	}
 }
+
+template <class Tesselation> 
+double FlowBoundingSphere<Tesselation>::fractionalSolidArea(CellHandle cell, int j)
+{
+    double area;
+    int k=0,l=0,m=0;
+    if(j==0){k=1; l=2; m=3;}
+    if(j==1){k=0; l=2; m=3;}
+    if(j==2){k=1; l=0; m=3;}
+    if(j==3){k=1; l=2; m=0;}
+    area = this->fastSphericalTriangleArea(cell->vertex(j)->point(), cell->vertex(k)->point().point(), cell->vertex(l)-> point().point(), cell->vertex(m)-> point().point());
+    return area;
+}
+
 
 } //namespace CGT
 

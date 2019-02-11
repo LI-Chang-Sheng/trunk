@@ -151,9 +151,12 @@ bool Law2_ScGeom6D_CohFrictPhys_CohesionMoment::go(shared_ptr<IGeom>& ig, shared
 			maxFs = maxFs / Fs;
 			Vector3r trialForce=shearForce;
 			shearForce *= maxFs;
-			if (scene->trackEnergy){
+			if (scene->trackEnergy || traceEnergy){
 				Real sheardissip=((1/phys->ks)*(trialForce-shearForce))/*plastic disp*/ .dot(shearForce)/*active force*/;
-				if(sheardissip>0) scene->energy->add(sheardissip,"shearDissip",shearDissipIx,/*reset*/false);}
+				if(sheardissip>0) {
+					plasticDissipation+=sheardissip;
+					if (scene->trackEnergy) scene->energy->add(sheardissip,"shearDissip",shearDissipIx,/*reset*/false);}
+			}
 			if (Fn<0)  phys->normalForce = Vector3r::Zero();//Vector3r::Zero()
 		}
 		//Apply the force
@@ -245,6 +248,9 @@ void Ip2_CohFrictMat_CohFrictMat_CohFrictPhys::go(const shared_ptr<Material>& b1
 		setCohesionNow = 0;}
 
 	if (geom) {
+		const auto normalAdhPreCalculated = (normalCohesion) ? (*normalCohesion)(b1->id,b2->id) : std::min(sdec1->normalCohesion,sdec2->normalCohesion);
+		const auto shearAdhPreCalculated =  (shearCohesion)  ? (*shearCohesion)(b1->id,b2->id)  : std::min(sdec1->shearCohesion,sdec2->shearCohesion);
+		
 		if (!interaction->phys) {
 			interaction->phys = shared_ptr<CohFrictPhys>(new CohFrictPhys());
 			CohFrictPhys* contactPhysics = YADE_CAST<CohFrictPhys*>(interaction->phys.get());
@@ -257,6 +263,7 @@ void Ip2_CohFrictMat_CohFrictMat_CohFrictPhys::go(const shared_ptr<Material>& b1
 			Real fa 	= sdec1->frictionAngle;
 			Real fb 	= sdec2->frictionAngle;
 			Real Kn = 2.0*Ea*Da*Eb*Db/(Ea*Da+Eb*Db);//harmonic average of two stiffnesses
+			Real frictionAngle = (!frictAngle) ? std::min(fa,fb) : (*frictAngle)(sdec1->id,sdec2->id,fa,fb);
 
 			// harmonic average of alphas parameters
 			Real AlphaKr, AlphaKtw;
@@ -271,13 +278,13 @@ void Ip2_CohFrictMat_CohFrictMat_CohFrictPhys::go(const shared_ptr<Material>& b1
 
 			contactPhysics->kr = Da*Db*Ks*AlphaKr;
 			contactPhysics->ktw = Da*Db*Ks*AlphaKtw;
-			contactPhysics->tangensOfFrictionAngle		= std::tan(std::min(fa,fb));
+			contactPhysics->tangensOfFrictionAngle = std::tan(frictionAngle);
 
 			if ((setCohesionOnNewContacts || setCohesionNow) && sdec1->isCohesive && sdec2->isCohesive)
 			{
 				contactPhysics->cohesionBroken = false;
-				contactPhysics->normalAdhesion = std::min(sdec1->normalCohesion,sdec2->normalCohesion)*pow(std::min(Db, Da),2);
-				contactPhysics->shearAdhesion = std::min(sdec1->shearCohesion,sdec2->shearCohesion)*pow(std::min(Db, Da),2);
+				contactPhysics->normalAdhesion = normalAdhPreCalculated*pow(std::min(Db, Da),2);
+				contactPhysics->shearAdhesion = shearAdhPreCalculated*pow(std::min(Db, Da),2);
 				geom->initRotations(*(Body::byId(interaction->getId1(),scene)->state),*(Body::byId(interaction->getId2(),scene)->state));
 				contactPhysics->fragile=(sdec1->fragile || sdec2->fragile);
 			}
@@ -287,14 +294,13 @@ void Ip2_CohFrictMat_CohFrictMat_CohFrictPhys::go(const shared_ptr<Material>& b1
 			contactPhysics->maxRollPl = min(sdec1->etaRoll*Da,sdec2->etaRoll*Db);
 			contactPhysics->maxTwistPl = min(sdec1->etaTwist*Da,sdec2->etaTwist*Db);
 			contactPhysics->momentRotationLaw=(sdec1->momentRotationLaw && sdec2->momentRotationLaw);
-		}
-		else {// !isNew, but if setCohesionNow, all contacts are initialized like if they were newly created
+		} else {// !isNew, but if setCohesionNow, all contacts are initialized like if they were newly created
 			CohFrictPhys* contactPhysics = YADE_CAST<CohFrictPhys*>(interaction->phys.get());
 			if ((setCohesionNow && sdec1->isCohesive && sdec2->isCohesive) || contactPhysics->initCohesion)
 			{
 				contactPhysics->cohesionBroken = false;
-				contactPhysics->normalAdhesion = std::min(sdec1->normalCohesion,sdec2->normalCohesion)*pow(std::min(geom->radius2, geom->radius1),2);
-				contactPhysics->shearAdhesion = std::min(sdec1->shearCohesion,sdec2->shearCohesion)*pow(std::min(geom->radius2, geom->radius1),2);
+				contactPhysics->normalAdhesion = normalAdhPreCalculated*pow(std::min(geom->radius2, geom->radius1),2);
+				contactPhysics->shearAdhesion = shearAdhPreCalculated*pow(std::min(geom->radius2, geom->radius1),2);
 
 				geom->initRotations(*(Body::byId(interaction->getId1(),scene)->state),*(Body::byId(interaction->getId2(),scene)->state));
 				contactPhysics->fragile=(sdec1->fragile || sdec2->fragile);

@@ -45,7 +45,7 @@ class IPhysFunctor: public Functor2D<
 	/*argument types*/ TYPELIST_3(const shared_ptr<Material>&, const shared_ptr<Material>&, const shared_ptr<Interaction>&)
 >{
 	public: virtual ~IPhysFunctor();
-	YADE_CLASS_BASE_DOC(IPhysFunctor,Functor,"Functor for creating/updating :yref:`Interaction::phys` objects.");
+	YADE_CLASS_BASE_DOC(IPhysFunctor,Functor,"Functor for creating/updating :yref:`Interaction::phys` objects from :yref:`bodies' material<Body::material>` properties.");
 };
 REGISTER_SERIALIZABLE(IPhysFunctor);
 
@@ -56,8 +56,6 @@ class LawFunctor: public Functor2D<
 	/*argument types*/ TYPELIST_3(shared_ptr<IGeom>&, shared_ptr<IPhys>&, Interaction*)
 >{
 	public: virtual ~LawFunctor();
-	// called before every step once, from InteractionLoop (used to set Scene::flags & Scene::COMPRESSION_NEGATIVE) 
-	virtual void preStep(){};
 	/*! Convenience functions to get forces/torques quickly. */
 	void addForce (const Body::id_t id, const Vector3r& f,Scene* rb){rb->forces.addForce (id,f);}
 	void addTorque(const Body::id_t id, const Vector3r& t,Scene* rb){rb->forces.addTorque(id,t);}

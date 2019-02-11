@@ -14,7 +14,7 @@
 ## http://arxiv.org/pdf/1304.4895.pdf
 ## Also used in:
 ## * Tong et al.2012 (http://dx.doi.org/10.2516/ogst/2012032)
-## * Sari et al 2011 (http://geo.hmg.inpg.fr/~chareyre/pubs/SariChareyreCatalanoPhilippeVincens_Particles2011.pdf)
+## * Sari et al 2011 (http://people.3sr-grenoble.fr/users/bchareyre/pubs/SariChareyreCatalanoPhilippeVincens_Particles2011.pdf)
 
 
 ## The DEM-PFV is applied here to 1D consolidation (oedometer test). The example includes the determination of oedometer modulus Ee and permeability K.
@@ -117,6 +117,7 @@ print "Qin=",Qin," Qout=",Qout," permeability=",permeability
 #C. now the oedometer test, drained at the top, impermeable at the bottom plate
 flow.bndCondIsPressure=[0,0,0,1,0,0]
 flow.bndCondValue=[0,0,0,0,0,0]
+flow.updateTriangulation=True #force remeshing to reflect new BC immediately
 newton.damping=0
 
 #we want the theoretical value from Terzaghi's solution
@@ -161,5 +162,7 @@ from yade import timing
 print "starting oedometer simulation"
 O.run(200,1)
 timing.stats()
+
+print "\nPress ▶ (the start button) to see graph.\n"
 
 ## Make more steps to see the convergence to the stationnary solution

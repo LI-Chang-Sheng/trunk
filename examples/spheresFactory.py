@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-"""Simple script which shows how to create an inlet. 
+"""Simple script which shows how to create an inlet.
 """
 
 shotsId,steelId=O.materials.append([

@@ -20,6 +20,12 @@ Welcome to Yade's documentation!
 
   installation.rst
 
+  amazonEC2.rst
+
+  GPUacceleration.rst
+
+  HydroForceEngine.rst
+
   github.rst
 
   formulation.rst
@@ -30,9 +36,13 @@ Welcome to Yade's documentation!
 
   FEMxDEM.rst
 
+  acousticemissions.rst
+
   citing.rst
 
   publications.rst
+
+  yadeTechArchive.rst
 
   references.rst
 

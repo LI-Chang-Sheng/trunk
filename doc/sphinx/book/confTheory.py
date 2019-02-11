@@ -64,7 +64,7 @@ def yadesrc_role(role,rawtext,lineno,inliner,options={},content=[]):
 	m=re.match('(.*)\s*<(.*)>\s*',id)
 	if m:
 		txt,id=m.group(1),m.group(2)
-	return [nodes.reference(rawtext,docutils.utils.unescape(txt),refuri='https://github.com/yade/trunk/blob/master/%s'%id)],[] ### **options should be passed to nodes.reference as well
+	return [nodes.reference(rawtext,docutils.utils.unescape(txt),refuri='https://gitlab.com/yade-dev/trunk/blob/master/%s'%id)],[] ### **options should be passed to nodes.reference as well
 
 # map modules to their html (rst) filenames. Used for sub-modules, where e.g. SpherePack is yade._packSphere.SpherePack, but is documented from yade.pack.rst
 moduleMap={
@@ -102,14 +102,7 @@ def mkYrefNode(target,text,rawtext,role,explicitText,lineno,options={}):
 	else:
 		uri=(('%%yade.wrapper#yade.wrapper.%s'%target) if writer=='latex' else 'yade.wrapper.html#yade.wrapper.%s'%target)
 		#print writer,uri
-	if 0:
-		refnode=addnodes.pending_xref(rawtext,reftype=role,refexplicit=explicitText,reftarget=target)
-		#refnode.line=lineno
-		#refnode+=nodes.literal(rawtext,text,classes=['ref',role])
-		return [refnode],[]
-		#ret.rawtext,reftype=role,
-	else:
-		return nodes.reference(rawtext,docutils.utils.unescape(text),refuri=uri,**options)
+	return nodes.reference(rawtext,docutils.utils.unescape(text),refuri=uri,**options)
 	#return [refnode],[]
 
 def ydefault_role(role,rawtext,text,lineno,inliner,options={},content=[]):
@@ -364,10 +357,12 @@ if 1:
 	else:
 		if 12<=yade.runtime.ipython_version<13:
 			import ipython_directive012 as id
-                elif 13<=yade.runtime.ipython_version<200:
+		elif 13<=yade.runtime.ipython_version<200:
 			import ipython_directive013 as id
-                else:
+		elif 200<=yade.runtime.ipython_version<500:
 			import ipython_directive200 as id
+		else:
+			import ipython_directive500 as id
 
 	#The next four lines are for compatibility with IPython 0.13.1
 	ipython_rgxin =re.compile(r'(?:In |Yade )\[(\d+)\]:\s?(.*)\s*')
@@ -396,7 +391,7 @@ extensions = [
 		'sphinx.ext.autodoc',
 		'sphinx.ext.autosummary',
 		'sphinx.ext.coverage',
-		'sphinx.ext.pngmath',
+		'sphinx.ext.mathjax',
 		'sphinx.ext.graphviz',
 		'sphinx.ext.viewcode',
 		'sphinx.ext.inheritance_diagram',
@@ -414,10 +409,12 @@ if yade.runtime.ipython_version<12:
 else:
 	if 12<=yade.runtime.ipython_version<13:
 		extensions.append('ipython_directive012')
-        elif 13<=yade.runtime.ipython_version<200:
+	elif 13<=yade.runtime.ipython_version<200:
 		extensions.append('ipython_directive013')
-        else:
+	elif 200<=yade.runtime.ipython_version<500:
 		extensions.append('ipython_directive200')
+	else:
+		extensions.append('ipython_directive500')
 
 # the sidebar extension
 if False:

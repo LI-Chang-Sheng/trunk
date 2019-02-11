@@ -104,6 +104,7 @@ class CpmMat: public FrictMat {
 		((bool,neverDamage,false,,"If true, no damage will occur (for testing only)."))
 		((Real,epsCrackOnset,NaN,,"Limit elastic strain [-]"))
 		((Real,relDuctility,NaN,,"relative ductility of bonds in normal direction"))
+		((Real,equivStrainShearContrib,0,,"Coefficient of shear contribution to equivalent strain"))
 		((int,damLaw,1,,"Law for damage evolution in uniaxial tension. 0 for linear stress-strain softening branch, 1 (default) for exponential damage evolution law"))
 		((Real,dmgTau,((void)"deactivated if negative",-1),,"Characteristic time for normal viscosity. [s]"))
 		((Real,dmgRateExp,0,,"Exponent for normal viscosity function. [-]"))
@@ -168,6 +169,7 @@ class CpmPhys: public NormShearPhys {
 			((Real,epsCrackOnset,NaN,,"strain at which the material starts to behave non-linearly"))
 			((Real,relDuctility,NaN,,"Relative ductility of bonds in normal direction"))
 			((Real,epsFracture,NaN,,"strain at which the bond is fully broken [-]"))
+			((Real,equivStrainShearContrib,NaN,,"Coefficient of shear contribution to equivalent strain"))
 			((Real,dmgTau,-1,,"characteristic time for damage (if non-positive, the law without rate-dependence is used)"))
 			((Real,dmgRateExp,0,,"exponent in the rate-dependent damage evolution"))
 			((Real,dmgStrain,0,,"damage strain (at previous or current step)"))
@@ -229,6 +231,7 @@ class Ip2_CpmMat_CpmMat_CpmPhys: public IPhysFunctor{
 		DECLARE_LOGGER;
 		YADE_CLASS_BASE_DOC_ATTRS(Ip2_CpmMat_CpmMat_CpmPhys,IPhysFunctor,"Convert 2 :yref:`CpmMat` instances to :yref:`CpmPhys` with corresponding parameters. Uses simple (arithmetic) averages if material are different. Simple copy of parameters is performed if the :yref:`material<CpmMat>` is shared between both particles. See :yref:`cpm-model<CpmMat>` for detals.",
 			((long,cohesiveThresholdIter,10,,"Should new contacts be cohesive? They will before this iter#, they will not be afterwards. If 0, they will never be. If negative, they will always be created as cohesive (10 by default)."))
+			((shared_ptr<MatchMaker>,E,,,"Instance of :yref:`MatchMaker` determining how to compute interaction's normal modulus. If ``None``, average value is used."))
 		);
 };
 REGISTER_SERIALIZABLE(Ip2_CpmMat_CpmMat_CpmPhys);
@@ -241,6 +244,7 @@ class Ip2_FrictMat_CpmMat_FrictPhys: public IPhysFunctor{
 		FUNCTOR2D(FrictMat,CpmMat);
 		DECLARE_LOGGER;
 		YADE_CLASS_BASE_DOC_ATTRS(Ip2_FrictMat_CpmMat_FrictPhys,IPhysFunctor,"Convert :yref:`CpmMat` instance and :yref:`FrictMat` instance to :yref:`FrictPhys` with corresponding parameters (young, poisson, frictionAngle). Uses simple (arithmetic) averages if material parameters are different.",
+			((shared_ptr<MatchMaker>,frictAngle,,,"See :yref:`Ip2_FrictMat_FrictMat_FrictPhys`."))
 		);
 };
 REGISTER_SERIALIZABLE(Ip2_FrictMat_CpmMat_FrictPhys);
@@ -255,7 +259,7 @@ REGISTER_SERIALIZABLE(Ip2_FrictMat_CpmMat_FrictPhys);
 
 class Law2_ScGeom_CpmPhys_Cpm: public LawFunctor{
 	public:
-	bool go(shared_ptr<IGeom>& _geom, shared_ptr<IPhys>& _phys, Interaction* I);
+	virtual bool go(shared_ptr<IGeom>& _geom, shared_ptr<IPhys>& _phys, Interaction* I);
 	Real elasticEnergy();
 
 	Real yieldSigmaTMagnitude(Real sigmaN, Real omega, Real undamagedCohesion, Real tanFrictionAngle) {
@@ -275,7 +279,7 @@ class Law2_ScGeom_CpmPhys_Cpm: public LawFunctor{
 		((Real,yieldLogSpeed,.1,,"scaling in the logarithmic yield surface (should be <1 for realistic results; >=0 for meaningful results)"))
 		((Real,yieldEllipseShift,NaN,,"horizontal scaling of the ellipse (shifts on the +x axis as interactions with +y are given)"))
 		((Real,omegaThreshold,((void)">=1. to deactivate, i.e. never delete any contacts",1.),,"damage after which the contact disappears (<1), since omega reaches 1 only for strain →+∞"))
-		((Real,epsSoft,((void)"approximates confinement -20MPa precisely, -100MPa a little over, -200 and -400 are OK (secant)",-3e-3),,"Strain at which softening in compression starts (non-negative to deactivate)"))
+		((Real,epsSoft,((void)"approximates confinement (for -3e-3) -20MPa precisely, -100MPa a little over, -200 and -400 are OK (secant)",1.),,"Strain at which softening in compression starts (non-negative to deactivate). The default value is such that plasticity does not occur"))
 		((Real,relKnSoft,.3,,"Relative rigidity of the softening branch in compression (0=perfect elastic-plastic, <0 softening, >0 hardening)")),
 		/*ctor*/,
 		.def("yieldSigmaTMagnitude",&Law2_ScGeom_CpmPhys_Cpm::yieldSigmaTMagnitude,(py::arg("sigmaN"),py::arg("omega"),py::arg("undamagedCohesion"),py::arg("tanFrictionAngle")),"Return radius of yield surface for given material and state parameters; uses attributes of the current instance (*yieldSurfType* etc), change them before calling if you need that.")
@@ -315,7 +319,7 @@ REGISTER_SERIALIZABLE(Law2_ScGeom_CpmPhys_Cpm);
 			((bool,epsT,false,,"Show shear strain "))
 			((bool,epsTAxes,false,,"Show axes of shear plane "))
 			((bool,normal,false,,"Show contact normal"))
-			((Real,colorStrainRatio,-1,,"If positive, set the interaction (wire) color based on $\\eps_N$ normalized by $\\eps_0$ × :yref:`colorStrainRatio<CpmPhys.colorStrainRatio>` ($\\eps_0$ = :yref:`CpmPhys.epsCrackOnset` ). Otherwise, color based on the residual strength."))
+			((Real,colorStrainRatio,-1,,"If positive, set the interaction (wire) color based on $\\eps_N$ normalized by $\\eps_0$ x :yref:`colorStrainRatio<CpmPhys.colorStrainRatio>` ($\\eps_0$ = :yref:`CpmPhys.epsCrackOnset` ). Otherwise, color based on the residual strength."))
 			((bool,epsNLabel,false,,"Numerically show normal strain"))
 		);
 	};

@@ -34,6 +34,17 @@ struct Boundary
 	bool useMaxMin;// tells if this boundary was placed following the particles (using min/max of them) or with user defined position
 };
 
+struct ThermalBoundary
+{
+	Point p;//position
+	CVector normal;//orientation
+	Vector3r velocity;//motion
+	int coordinate;//the axis perpendicular to the boundary
+	bool fluxCondition;//fluxCondition=0, temperature is imposed // fluxCondition=1, flux is imposed
+	Real value;// value of imposed temperature
+	bool useMaxMin;// tells if this boundary was placed following the particles (using min/max of them) or with user defined position
+};
+
 
 template<class Tesselation>
 class Network
@@ -54,11 +65,17 @@ class Network
 		int xMinId, xMaxId, yMinId, yMaxId, zMinId, zMaxId;
 		int* boundsIds [6];
 		vector<CellHandle> boundingCells [6];
+		vector<CellHandle> thermalBoundingCells [6];
+		vector<CellHandle> conductionBoundingCells [6];
 		Point cornerMin;
 		Point cornerMax;
 		Real VSolidTot, Vtotalissimo, vPoral, sSolidTot, vPoralPorosity, vTotalPorosity;
 		Boundary boundaries [6];
+		ThermalBoundary thermalBoundaries [6];
+		ThermalBoundary conductionBoundaries [6];
 		Boundary& boundary (int b) {return boundaries[b-idOffset];}
+		ThermalBoundary& thermalBoundary (int b) {return thermalBoundaries[b-idOffset];}
+		ThermalBoundary& conductionBoundary (int b) {return conductionBoundaries[b-idOffset];}
 		short idOffset;
 		int vtkInfiniteVertices, vtkInfiniteCells, num_particles;
 
@@ -78,7 +95,8 @@ class Network
 		double volumeDoubleFictiousPore(VertexHandle SV1, VertexHandle SV2, VertexHandle SV3, Point PV1);
 		double volumeSingleFictiousPore(VertexHandle SV1, VertexHandle SV2, VertexHandle SV3, Point PV1);
 		double volumePoreVoronoiFraction ( CellHandle& cell, int& j, bool reuseFacetData=false);
-		double surfaceSolidPore( CellHandle cell, int j, bool slipBoundary, bool reuseFacetData=false);
+		double surfaceSolidThroat( CellHandle cell, int j, bool slipBoundary, bool reuseFacetData=false);
+		double surfaceSolidThroatInPore( CellHandle cell, int j, bool slipBoundary, bool reuseFacetData=false);// returns the solid area in the throat, keeping only that part of the throat in cell
 		double sphericalTriangleArea ( Sphere STA1, Sphere STA2, Sphere STA3, Point PTA1 );
 		
 		CVector surfaceDoubleFictiousFacet(VertexHandle fSV1, VertexHandle fSV2, VertexHandle SV3);

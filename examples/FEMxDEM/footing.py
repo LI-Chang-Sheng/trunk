@@ -1,14 +1,36 @@
 """ Author: Ning Guo <ceguo@connect.ust.hk>
     run `mv footing.yade.gz 0.yade.gz`
     to generate initial RVE packing
+
+How to run this script:
+    sudo apt install python-escript
+    cd examples/FEMxDEM
+    export PYTHONPATH="/usr/lib/python-escript:../../py/FEMxDEM"
+    export LD_LIBRARY_PATH=/usr/lib/python-escript/lib
+    ln -s /path/to/yade ../../py/FEMxDEM/yadeimport.py
+    /path/to/yade ./footing.py
+Please amend these instructions if you find that they do not work.
 """
 from esys.escript import *
 from esys.finley import ReadGmsh
 from esys.weipa import saveVTK
 from esys.escript.pdetools import Projector
+# FIXME: which one of those should it be: msFEM2D, msFEM3D, msFEMup ?
 from msFEM import MultiScale
 from saveGauss import saveGauss2D
 import time
+import os
+import errno
+
+try:
+   os.mkdir('./result/')
+   os.mkdir('./result/gauss')
+   os.mkdir('./result/vtk')
+   os.mkdir('./result/packing')
+except OSError as exc:
+   if exc.errno != errno.EEXIST:
+      raise
+   pass
 
 vel = -0.00025; surcharge=-20.e3; # surcharge equals to the initial vertical stress of the RVE packing
 dim = 2; B = 0.05; L = 0.6; H = 0.4;

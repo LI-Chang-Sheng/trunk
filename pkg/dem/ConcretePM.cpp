@@ -24,7 +24,9 @@ void Ip2_FrictMat_CpmMat_FrictPhys::go(const shared_ptr<Material>& pp1, const sh
 	TIMING_DELTAS_START();
 	const shared_ptr<FrictMat>& mat1 = YADE_PTR_CAST<FrictMat>(pp1);
 	const shared_ptr<CpmMat>& mat2 = YADE_PTR_CAST<CpmMat>(pp2);
-	Ip2_FrictMat_FrictMat_FrictPhys().go(mat1,mat2,interaction);
+	Ip2_FrictMat_FrictMat_FrictPhys iPhysFunctor = Ip2_FrictMat_FrictMat_FrictPhys();
+	iPhysFunctor.frictAngle = frictAngle;
+	iPhysFunctor.go(mat1,mat2,interaction);
 	TIMING_DELTAS_CHECKPOINT("end of Ip2_FritPhys");
 }
 
@@ -43,14 +45,14 @@ void Ip2_CpmMat_CpmMat_CpmPhys::go(const shared_ptr<Material>& pp1, const shared
 
 	// check unassigned values
 	if (!mat1->neverDamage) {
-		assert(!isnan(mat1->sigmaT));
-		assert(!isnan(mat1->epsCrackOnset));
-		assert(!isnan(mat1->relDuctility));
+		assert(!std::isnan(mat1->sigmaT));
+		assert(!std::isnan(mat1->epsCrackOnset));
+		assert(!std::isnan(mat1->relDuctility));
 	}
 	if (!mat2->neverDamage) {
-		assert(!isnan(mat2->sigmaT));
-		assert(!isnan(mat2->epsCrackOnset));
-		assert(!isnan(mat2->relDuctility));
+		assert(!std::isnan(mat2->sigmaT));
+		assert(!std::isnan(mat2->epsCrackOnset));
+		assert(!std::isnan(mat2->relDuctility));
 	}
 
 	cpmPhys->damLaw = mat1->damLaw;
@@ -64,6 +66,7 @@ void Ip2_CpmMat_CpmMat_CpmPhys::go(const shared_ptr<Material>& pp1, const shared
 		#define _CPATTR(a) cpmPhys->a=mat1->a
 			_CPATTR(epsCrackOnset);
 			_CPATTR(relDuctility);
+			_CPATTR(equivStrainShearContrib);
 			_CPATTR(neverDamage);
 			_CPATTR(dmgTau);
 			_CPATTR(dmgRateExp);
@@ -74,13 +77,15 @@ void Ip2_CpmMat_CpmMat_CpmPhys::go(const shared_ptr<Material>& pp1, const shared
 	} else {
 		// averaging over both materials
 		#define _AVGATTR(a) cpmPhys->a=.5*(mat1->a+mat2->a)
-			cpmPhys->E = .5*(mat1->young + mat2->young);
-			cpmPhys->G = .5*(mat1->poisson + mat2->poisson)*.5*(mat1->young + mat2->young);
+			Real e = (!E) ? .5*(mat1->young + mat2->young) : (*E)(mat1->id,mat2->id,mat1->young,mat2->young);
+			cpmPhys->E = e;
+			cpmPhys->G = .5*(mat1->poisson + mat2->poisson)*cpmPhys->E;
 			cpmPhys->tanFrictionAngle = tan(.5*(mat1->frictionAngle + mat2->frictionAngle));
 			cpmPhys->undamagedCohesion = .5*(mat1->sigmaT + mat2->sigmaT);
 			cpmPhys->isCohesive = (cohesiveThresholdIter < 0 || scene->iter < cohesiveThresholdIter);
 			_AVGATTR(epsCrackOnset);
 			_AVGATTR(relDuctility);
+			_AVGATTR(equivStrainShearContrib);
 			cpmPhys->neverDamage = (mat1->neverDamage || mat2->neverDamage);
 			_AVGATTR(dmgTau);
 			_AVGATTR(dmgRateExp);
@@ -273,7 +278,7 @@ Real Law2_ScGeom_CpmPhys_Cpm::elasticEnergy() {
 
 #ifdef YADE_DEBUG
 	#define CPM_YADE_DEBUG_A \
-		if(isnan(epsN)){\
+		if(std::isnan(epsN)){\
 			/*LOG_FATAL("refLength="<<geom->refLength<<"; pos1="<<geom->se31.position<<"; pos2="<<geom->se32.position<<"; displacementN="<<geom->displacementN());*/ \
 			throw runtime_error("!! epsN==NaN !!");\
 		}
@@ -283,8 +288,8 @@ Real Law2_ScGeom_CpmPhys_Cpm::elasticEnergy() {
 
 
 #define YADE_VERIFY(condition) if(!(condition)){LOG_FATAL("Verification `"<<#condition<<"' failed!"); LOG_FATAL("in interaction #"<<I->getId1()<<"+#"<<I->getId2()); Omega::instance().saveSimulation("/tmp/verificationFailed.xml"); throw;}
-#define NNAN(a) YADE_VERIFY(!isnan(a));
-#define NNANV(v) YADE_VERIFY(!isnan(v[0])); assert(!isnan(v[1])); assert(!isnan(v[2]));
+#define NNAN(a) YADE_VERIFY(!std::isnan(a));
+#define NNANV(v) YADE_VERIFY(!std::isnan(v[0])); assert(!std::isnan(v[1])); assert(!std::isnan(v[2]));
 
 bool Law2_ScGeom_CpmPhys_Cpm::go(shared_ptr<IGeom>& _geom, shared_ptr<IPhys>& _phys, Interaction* I){
 	TIMING_DELTAS_START();
@@ -304,7 +309,7 @@ bool Law2_ScGeom_CpmPhys_Cpm::go(shared_ptr<IGeom>& _geom, shared_ptr<IPhys>& _p
 		if (b1index == sphereIndex && b2index == sphereIndex) { // both bodies are spheres
 			const Vector3r& pos1 = Body::byId(I->id1,scene)->state->pos;
 			const Vector3r& pos2 = Body::byId(I->id2,scene)->state->pos;
-			Real minRad = (geom->refR1 <= 0? geom->refR2 : (geom->refR2 <=0? geom->refR1 : min(geom->refR1,geom->refR2)));
+			Real minRad = (geom->refR1 <= 0? geom->refR2 : (geom->refR2 <=0? geom->refR1 : std::min(geom->refR1,geom->refR2)));
 			Vector3r shift2 = scene->isPeriodic? Vector3r(scene->cell->hSize*I->cellDist.cast<Real>()) : Vector3r::Zero();
 			phys->refLength = (pos2 - pos1 + shift2).norm();
 			phys->crossSection = Mathr::PI*pow(minRad,2);
@@ -326,6 +331,7 @@ bool Law2_ScGeom_CpmPhys_Cpm::go(shared_ptr<IGeom>& _geom, shared_ptr<IPhys>& _p
 	/* shorthands */
 	Real& epsN(phys->epsN);
 	Vector3r& epsT(phys->epsT);
+	Vector3r& epsTPl(phys->epsTPl);
 	Real& kappaD(phys->kappaD);
 	/* Real& epsPlSum(phys->epsPlSum); */
 	const Real& E(phys->E); \
@@ -349,17 +355,16 @@ bool Law2_ScGeom_CpmPhys_Cpm::go(shared_ptr<IGeom>& _geom, shared_ptr<IPhys>& _p
 
 
 	#ifdef CPM_MATERIAL_MODEL
-		Vector3r& epsTPl(phys->epsTPl);
-		Real& epsNPl(phys->epsNPl);
 		const Real& dt = scene->dt;
 		const Real& dmgTau(phys->dmgTau);
 		const Real& plTau(phys->plTau);
 		const Real& yieldLogSpeed(this->yieldLogSpeed);
 		const int& yieldSurfType(this->yieldSurfType);
 		const Real& yieldEllipseShift(this->yieldEllipseShift);
-		const Real& epsSoft(this->epsSoft);
-		const Real& relKnSoft(this->relKnSoft);
 	#endif
+	Real& epsNPl(phys->epsNPl);
+	const Real& epsSoft(this->epsSoft);
+	const Real& relKnSoft(this->relKnSoft);
 
 	TIMING_DELTAS_CHECKPOINT("GO A");
 	
@@ -381,16 +386,21 @@ bool Law2_ScGeom_CpmPhys_Cpm::go(shared_ptr<IGeom>& _geom, shared_ptr<IPhys>& _p
 		/* simplified public model */
 		epsN += phys->isoPrestress/E;
 		/* very simplified version of the constitutive law */
-		kappaD = max(max((Real)0.,epsN),kappaD); /* internal variable, max positive strain (non-decreasing) */
+		Real xi2 = std::pow(phys->equivStrainShearContrib,2);
+		Real epsNorm = std::sqrt(std::pow(std::max(epsN-epsNPl,0.),2)+xi2*epsT.squaredNorm());
+		kappaD = std::max(epsNorm,kappaD); /* internal variable, max positive strain (non-decreasing) */
 		omega = isCohesive? phys->funcG(kappaD,epsCrackOnset,epsFracture,neverDamage,damLaw) : 1.; /* damage variable (non-decreasing, as funcG is also non-decreasing) */
-		sigmaN = (1-(epsN>0?omega:0))*E*epsN; /* damage taken in account in tension only */
-		sigmaT = G*epsT; /* trial stress */
-		Real yieldSigmaT = max((Real)0.,undamagedCohesion*(1-omega)-sigmaN*tanFrictionAngle); /* Mohr-Coulomb law with damage */
+		sigmaN = (1-(epsN-epsNPl>0?omega:0))*E*(epsN-epsNPl); /* damage taken in account in tension only */
+		if((epsSoft<0) && (epsN-epsNPl<epsSoft)){ /* plastic slip in compression */
+			Real sigmaNSoft=E*(epsSoft+relKnSoft*(epsN-epsNPl-epsSoft));
+			if(sigmaNSoft>sigmaN){ /*assert(sigmaNSoft>sigmaN);*/ epsNPl+=(sigmaN-sigmaNSoft)/E; sigmaN=sigmaNSoft; }
+		}
+		sigmaT = G*(epsT-epsTPl); /* trial stress */
+		Real yieldSigmaT = std::max((Real)0.,undamagedCohesion*(1-omega)-sigmaN*tanFrictionAngle); /* Mohr-Coulomb law with damage */
 		if (sigmaT.squaredNorm() > yieldSigmaT*yieldSigmaT) {
 			Real scale = yieldSigmaT/sigmaT.norm();
 			sigmaT *= scale; /* stress return */
-			//epsT *= scale;
-			/* epsPlSum += yieldSigmaT*geom->slipToStrainTMax(yieldSigmaT/G);*/ /* adjust strain */
+			epsTPl += sigmaT*(1-scale)/G;
 		}
 		relResidualStrength = isCohesive? (kappaD<epsCrackOnset? 1. : (1-omega)*(kappaD)/epsCrackOnset) : 0;
 	#endif
@@ -585,7 +595,7 @@ void CpmStateUpdater::update(Scene* _scene){
 		if (!phys->isCohesive) continue;
 		bodyStats[id1].nCohLinks++; bodyStats[id1].dmgSum += (1-phys->relResidualStrength); // bodyStats[id1].epsPlSum += phys->epsPlSum;
 		bodyStats[id2].nCohLinks++; bodyStats[id2].dmgSum += (1-phys->relResidualStrength); // bodyStats[id2].epsPlSum += phys->epsPlSum;
-		maxOmega = max(maxOmega,phys->omega);
+		maxOmega = std::max(maxOmega,phys->omega);
 		avgRelResidual += phys->relResidualStrength;
 		nAvgRelResidual += 1;
 		for (int i=0; i<3; i++) {

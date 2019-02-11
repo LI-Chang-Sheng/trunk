@@ -1,6 +1,15 @@
 """ Author: Ning Guo <ceguo@connect.ust.hk>
     run `mv undrain.yade.gz 0.yade.gz`
     to generate initial RVE packing
+
+How to run this script:
+    sudo apt install python-escript
+    cd examples/FEMxDEM
+    export PYTHONPATH="/usr/lib/python-escript:../../py/FEMxDEM"
+    export LD_LIBRARY_PATH=/usr/lib/python-escript/lib
+    ln -s /path/to/yade ../../py/FEMxDEM/yadeimport.py
+    /path/to/yade ./undrain.py
+Please amend these instructions if you find that they do not work.
 """
 from esys.escript import *
 from esys.finley import Rectangle
@@ -9,6 +18,19 @@ from esys.escript.pdetools import Projector
 from msFEMup import MultiScale
 from saveGauss import saveGauss2D
 import time
+import os
+import errno
+
+try:
+   os.mkdir('./result/')
+   os.mkdir('./result/gauss')
+   os.mkdir('./result/vtk')
+   os.mkdir('./result/packing')
+except OSError as exc:
+   if exc.errno != errno.EEXIST:
+      raise
+   pass
+
 
 confining = -2.e5; pore = 1.e5 # initial pore pressure
 perm = 0.001**2/(180.*8.9e-4); # unscaled permeability, using KC equation

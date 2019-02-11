@@ -7,13 +7,15 @@ from yade import utils
 
 from minieigen import *
 
-def textExt(fileName,format='x_y_z_r',shift=Vector3.Zero,scale=1.0,**kw):
+
+def textExt(fileName,format='x_y_z_r',shift=Vector3.Zero,scale=1.0,attrs=[],**kw):
 	"""Load sphere coordinates from file in specific format, returns a list of corresponding bodies; that may be inserted to the simulation with O.bodies.append().
 	
 	:param str filename: file name
-	:param str format: the name of output format. Supported `x_y_z_r`(default), `x_y_z_r_matId`
+	:param str format: the name of output format. Supported `x_y_z_r`(default), `x_y_z_r_matId`, 'x_y_z_r_attrs'
 	:param [float,float,float] shift: [X,Y,Z] parameter moves the specimen.
 	:param float scale: factor scales the given data.
+	:param list attrs: attrs read from file if export.textExt(format='x_y_z_r_attrs') were used ('passed by refernece' style)
 	:param \*\*kw: (unused keyword arguments) is passed to :yref:`yade.utils.sphere`
 	:returns: list of spheres.
 
@@ -40,11 +42,18 @@ def textExt(fileName,format='x_y_z_r',shift=Vector3.Zero,scale=1.0,**kw):
 		elif (format=='id_x_y_z_r_matId'):
 			pos = Vector3(float(data[1]),float(data[2]),float(data[3]))
 			ret.append(utils.sphere(shift+scale*pos,scale*float(data[4]),material=int(data[5]),**kw))
+
+		elif (format=='x_y_z_r_attrs'):
+			pos = Vector3(float(data[0]),float(data[1]),float(data[2]))
+			s = utils.sphere(shift+scale*pos,scale*float(data[3]),**kw)
+			ret.append(s)
+			attrs.append(data[4:])
 			
 		else:
 			raise RuntimeError("Please, specify a correct format output!");
 	return ret
-  
+
+
 def textClumps(fileName,shift=Vector3.Zero,discretization=0,orientation=Quaternion((0,1,0),0.0),scale=1.0,**kw):
 	"""Load clumps-members from file, insert them to the simulation.
 	
@@ -87,6 +96,7 @@ def textClumps(fileName,shift=Vector3.Zero,discretization=0,orientation=Quaterni
 		O.bodies[ret[i][0]].mask = O.bodies[ret[i][1][0]].mask
 	return ret
 
+
 def text(fileName,shift=Vector3.Zero,scale=1.0,**kw):
 	"""Load sphere coordinates from file, returns a list of corresponding bodies; that may be inserted to the simulation with O.bodies.append().
 
@@ -100,7 +110,8 @@ def text(fileName,shift=Vector3.Zero,scale=1.0,**kw):
 	"""
 	
 	return textExt(fileName=fileName,format='x_y_z_r',shift=shift,scale=scale,**kw)
-	
+
+
 def stl(file, dynamic=None,fixed=True,wire=True,color=None,highlight=False,noBound=False,material=-1):
 	""" Import geometry from stl file, return list of created facets."""
 	imp = STLImporter()
@@ -114,7 +125,8 @@ def stl(file, dynamic=None,fixed=True,wire=True,color=None,highlight=False,noBou
 		b.aspherical=False
 	return facets
 
-def gts(meshfile,shift=(0,0,0),scale=1.0,**kw):
+
+def gts(meshfile,shift=Vector3.Zero,scale=1.0,**kw):
 	""" Read given meshfile in gts format.
 
 	:Parameters:
@@ -130,12 +142,13 @@ def gts(meshfile,shift=(0,0,0),scale=1.0,**kw):
 	"""
 	import gts,yade.pack
 	surf=gts.read(open(meshfile))
-	surf.scale(scale)
-	surf.translate(shift) 
+	surf.scale(scale,scale,scale)
+	surf.translate(shift[0],shift[1],shift[2]) 
 	yade.pack.gtsSurface2Facets(surf,**kw)
 
+
 def gmsh(meshfile="file.mesh",shift=Vector3.Zero,scale=1.0,orientation=Quaternion((0,1,0),0.0),**kw):
-	""" Imports geometry from mesh file and creates facets.
+	""" Imports geometry from .mesh file and creates facets.
 
 	:Parameters:
 		`shift`: [float,float,float]
@@ -148,8 +161,8 @@ def gmsh(meshfile="file.mesh",shift=Vector3.Zero,scale=1.0,orientation=Quaternio
 				is passed to :yref:`yade.utils.facet`
 	:Returns: list of facets forming the specimen.
 	
-	mesh files can be easily created with `GMSH <http://www.geuz.org/gmsh/>`_.
-	Example added to :ysrc:`examples/regular-sphere-pack/regular-sphere-pack.py`
+	mesh files can easily be created with `GMSH <http://www.geuz.org/gmsh/>`_.
+	Example added to :ysrc:`examples/packs/packs.py`
 	
 	Additional examples of mesh-files can be downloaded from 
 	http://www-roc.inria.fr/gamma/download/download.php
@@ -159,6 +172,7 @@ def gmsh(meshfile="file.mesh",shift=Vector3.Zero,scale=1.0,orientation=Quaternio
 	infile.close()
 
 	nodelistVector3=[]
+	elementlistVector3=[] # for deformable elements
 	findVerticesString=0
 	
 	while (lines[findVerticesString].split()[0]<>'Vertices'): #Find the string with the number of Vertices
@@ -174,7 +188,6 @@ def gmsh(meshfile="file.mesh",shift=Vector3.Zero,scale=1.0,orientation=Quaternio
 		data = line.split()
 		nodelistVector3[id] = orientation*Vector3(float(data[0])*scale,float(data[1])*scale,float(data[2])*scale)+shift
 		id += 1
-
 	
 	findTriangleString=findVerticesString+numNodes
 	while (lines[findTriangleString].split()[0]<>'Triangles'): #Find the string with the number of Triangles
@@ -204,6 +217,7 @@ def gmsh(meshfile="file.mesh",shift=Vector3.Zero,scale=1.0,orientation=Quaternio
 		c=nodelistVector3[i[3]]
 		ret.append(utils.facet((nodelistVector3[i[1]],nodelistVector3[i[2]],nodelistVector3[i[3]]),**kw))
 	return ret
+
 
 def gengeoFile(fileName="file.geo",shift=Vector3.Zero,scale=1.0,orientation=Quaternion((0,1,0),0.0),**kw):
 	""" Imports geometry from LSMGenGeo .geo file and creates spheres. 
@@ -246,6 +260,7 @@ def gengeoFile(fileName="file.geo",shift=Vector3.Zero,scale=1.0,orientation=Quat
 		ret.append(utils.sphere(shift+scale*pos,scale*float(data[3]),**kw))
 	return ret
 
+
 def gengeo(mntable,shift=Vector3.Zero,scale=1.0,**kw):
 	""" Imports geometry from LSMGenGeo library and creates spheres.
 	Since 2012 the package is available in Debian/Ubuntu and known as python-demgengeo
@@ -281,7 +296,6 @@ def gengeo(mntable,shift=Vector3.Zero,scale=1.0,**kw):
 		c=sphereList[i].Centre()
 		ret.append(utils.sphere([shift[0]+scale*float(c.X()),shift[1]+scale*float(c.Y()),shift[2]+scale*float(c.Z())],scale*float(r),**kw))
 	return ret
-
 
 
 def unv(fileName,shift=(0,0,0),scale=1.0,returnConnectivityTable=False,**kw):
@@ -362,7 +376,7 @@ def unv(fileName,shift=(0,0,0),scale=1.0,returnConnectivityTable=False,**kw):
 	unvReader = UNVReader(fileName,shift,scale,returnConnectivityTable,**kw)
 	if returnConnectivityTable:
 		return unvReader.facets, unvReader.nodes, unvReader.elements
-	return facets
+	return unvReader.facets
 
 
 def iges(fileName,shift=(0,0,0),scale=1.0,returnConnectivityTable=False,**kw):
@@ -393,6 +407,7 @@ def iges(fileName,shift=(0,0,0),scale=1.0,returnConnectivityTable=False,**kw):
 	if returnConnectivityTable:
 		return facets, nodes, elems
 	return facets
+
 
 def ele(nodeFileName,eleFileName,shift=(0,0,0),scale=1.0,**kw):
 	""" Import tetrahedral mesh from .ele file, return list of created tetrahedrons.
@@ -438,3 +453,46 @@ def ele(nodeFileName,eleFileName,shift=(0,0,0),scale=1.0,**kw):
 		tetras[int(ls[0])-1] = utils.polyhedron([vertices[int(ls[j])-1] for j in (1,2,3,4)],**kw)
 	f.close()
 	return tetras
+
+def textPolyhedra(fileName,material,shift=Vector3.Zero,scale=1.0,orientation=Quaternion((0,1,0),0.0),**kw):
+	from yade import polyhedra_utils
+	"""Load polyhedra from a text file.
+	
+	:param str filename: file name
+	:param [float,float,float] shift: [X,Y,Z] parameter moves the specimen.
+	:param float scale: factor scales the given data.
+	:param quaternion orientation:  orientation of the imported polyhedra
+	:param \*\*kw: (unused keyword arguments) is passed to :yref:`yade.polyhedra_utils.polyhedra`
+	:returns: list of polyhedras.
+
+	Lines starting with # are skipped
+	"""
+	infile = open(fileName,"r")
+	lines = infile.readlines()
+	infile.close()
+	ret=[]
+	i=-1
+	while (i < (len(lines)-1)):
+		i+=1
+		line = lines[i]
+		data = line.split()
+		if (data[0][0] == "#"): continue
+		
+		if (len(data)!=3):
+			raise RuntimeError("Check polyhedra input file! Number of parameters in the first line is not 3!");
+		else:
+			vertLoad = []
+			ids = int(data[0])
+			verts = int(data[1])
+			surfs = int(data[2])
+			i+=1
+			for d in range(verts):
+				dataV = lines[i].split()
+				pos = orientation*Vector3(float(dataV[0])*scale,float(dataV[1])*scale,float(dataV[2])*scale)+shift
+				vertLoad.append(pos)
+				i+=1
+			polR = polyhedra_utils.polyhedra(material=material,v=vertLoad,**kw)
+			if (polR != -1):
+				ret.append(polR)
+			i= i + surfs - 1
+	return ret

@@ -8,14 +8,17 @@
 
 #ifdef YADE_CGAL
 
-#include<pkg/dem/Shop.hpp>
-#include"TesselationWrapper.hpp"
-#include<lib/triangulation/Timer.h>
-#include<pkg/dem/SpherePack.hpp>
-#include<lib/pyutil/numpy.hpp>
+#include <pkg/dem/Shop.hpp>
+#include "TesselationWrapper.hpp"
+#include <lib/triangulation/Timer.h>
+#include <pkg/dem/SpherePack.hpp>
+#include <lib/pyutil/numpy_boost.hpp>
 
 YADE_PLUGIN((TesselationWrapper));
 CREATE_LOGGER(TesselationWrapper);
+
+// helper macro do assign Matrix3r values to subarrays
+#define MATRIX3R_TO_NUMPY(mat,arr) arr[0]=mat(0,0);arr[1]=mat(0,1);arr[2]=mat(0,2);arr[3]=mat(1,0);arr[4]=mat(1,1);arr[5]=mat(1,2);arr[6]=mat(2,0);arr[7]=mat(2,1);arr[8]=mat(2,2);
 
 //spatial sort traits to use with a pair of CGAL::sphere pointers and integer.
 //template<class _Triangulation>
@@ -26,17 +29,17 @@ struct RTraits_for_spatial_sort : public CGT::SimpleTriangulationTypes::RTriangu
 
 	struct Less_x_3 {
 		bool operator()(const Point_3& p,const Point_3& q) const {
-			return Gt::Less_x_3()(* (p.first),* (q.first));
+			return Gt::Less_x_3()( p.first->point() , q.first->point() );
 		}
 	};
 	struct Less_y_3 {
 		bool operator()(const Point_3& p,const Point_3& q) const {
-			return Gt::Less_y_3()(* (p.first),* (q.first));
+			return Gt::Less_y_3()( p.first->point(), q.first->point());
 		}
 	};
 	struct Less_z_3 {
 		bool operator()(const Point_3& p,const Point_3& q) const {
-			return Gt::Less_z_3()(* (p.first),* (q.first));
+			return Gt::Less_z_3()( p.first->point(), q.first->point());
 		}
 	};
 	Less_x_3  less_x_3_object() const {return Less_x_3();}
@@ -70,11 +73,13 @@ void build_triangulation_with_ids(const shared_ptr<BodyContainer>& bodies, Tesse
 	int nonSpheres =0;
 	shared_ptr<Sphere> sph (new Sphere);
 	int Sph_Index = sph->getClassIndexStatic();
+	Scene* scene = Omega::instance().getScene().get();
 	for (; bi!=biEnd ; ++bi) {
 		if ( (*bi)->shape->getClassIndex() ==  Sph_Index ) {
-// 		if ((*bi)->isDynamic()) { //then it is a sphere (not a wall) FIXME : need test if isSphere
 			const Sphere* s = YADE_CAST<Sphere*> ((*bi)->shape.get());
-			const Vector3r& pos = (*bi)->state->pos;
+//FIXME: is the scene periodicity verification useful in the next line ? Tesselation seems to work in both periodic and non-periodic conditions with "scene->cell->wrapShearedPt((*bi)->state->pos)". I keep the verification to be consistent with all other uses of "wrapShearedPt" function.
+			const Vector3r& pos = scene->isPeriodic	? scene->cell->wrapShearedPt((*bi)->state->pos)
+								: (*bi)->state->pos;
 			const Real rad = s->radius;
 			CGT::Sphere sp(CGT::Point(pos[0],pos[1],pos[2]),rad*rad);
 			spheres.push_back(sp);
@@ -246,7 +251,7 @@ void TesselationWrapper::addBoundingPlanes(double pminx, double pmaxx, double pm
 		Tes->vertexHandles[freeIds[0]]=Tes->insert(0.5*(pminx+pmaxx),pminy-far*(pmaxx-pminx),0.5*(pmaxz+pminz),far*(pmaxx-pminx)+thickness,freeIds[0],true);
 		Tes->vertexHandles[freeIds[1]]=Tes->insert(0.5*(pminx+pmaxx), pmaxy+far*(pmaxx-pminx),0.5*(pmaxz+pminz),far*(pmaxx-pminx)+thickness, freeIds[1], true);
 		Tes->vertexHandles[freeIds[2]]=Tes->insert(pminx-far*(pmaxy-pminy), 0.5*(pmaxy+pminy), 0.5*(pmaxz+pminz), far*(pmaxy-pminy)+thickness, freeIds[2], true);
-		Tes->vertexHandles[freeIds[3]]=Tes->insert(pmaxx+far*(pmaxx-pminy), 0.5*(pmaxy+pminy), 0.5*(pmaxz+pminz), far*(pmaxy-pminy)+thickness, freeIds[3], true);
+		Tes->vertexHandles[freeIds[3]]=Tes->insert(pmaxx+far*(pmaxy-pminy), 0.5*(pmaxy+pminy), 0.5*(pmaxz+pminz), far*(pmaxy-pminy)+thickness, freeIds[3], true);
 		Tes->vertexHandles[freeIds[4]]=Tes->insert(0.5*(pminx+pmaxx), 0.5*(pmaxy+pminy), pminz-far*(pmaxy-pminy), far*(pmaxy-pminy)+thickness, freeIds[4], true);
 		Tes->vertexHandles[freeIds[5]]=Tes->insert(0.5*(pminx+pmaxx), 0.5*(pmaxy+pminy), pmaxz+far*(pmaxy-pminy), far*(pmaxy-pminy)+thickness, freeIds[5], true);
 		
@@ -385,6 +390,55 @@ boost::python::dict TesselationWrapper::getVolPoroDef(bool deformation)
  		ret["poro"]=poro;
  		if (deformation) ret["def"]=def;
  		return ret;
+}
+
+
+boost::python::list TesselationWrapper::getAlphaFaces(double alpha)
+{
+	vector<AlphaFace> faces;
+	Tes->setAlphaFaces(faces,alpha);
+	boost::python::list ret;
+	for (auto f=faces.begin();f!=faces.end();f++)
+		ret.append(boost::python::make_tuple(Vector3i(f->ids[0],f->ids[1],f->ids[2]),makeVector3r(f->normal)));
+	return ret;
+}
+
+boost::python::list TesselationWrapper::getAlphaCaps(double alpha, double shrinkedAlpha, bool fixedAlpha)
+{
+  vector<AlphaCap> caps;
+  Tes->setExtendedAlphaCaps(caps,alpha,shrinkedAlpha,fixedAlpha);
+  boost::python::list ret;
+   for (auto f=caps.begin();f!=caps.end();f++)
+    ret.append(boost::python::make_tuple(f->id,makeVector3r(f->normal)));
+//    cerr<<"number of caps="<<caps.size()<<endl;
+  return ret;
+}
+
+void TesselationWrapper::applyAlphaForces(Matrix3r stress, double alpha, double shrinkedAlpha, bool fixedAlpha)
+{
+	Scene* scene = Omega::instance().getScene().get();
+	if (Tes->Triangulation().number_of_vertices()<=0) build_triangulation_with_ids(scene->bodies,*this,true);//if not already triangulated do it now	
+	vector<AlphaCap> caps;
+	Tes->setExtendedAlphaCaps(caps,alpha,shrinkedAlpha,fixedAlpha);
+	for (auto f=caps.begin();f!=caps.end();f++) scene->forces.setPermForce(f->id,stress*makeVector3r(f->normal));
+}
+
+boost::python::list TesselationWrapper::getAlphaGraph(double alpha, double shrinkedAlpha, bool fixedAlpha)
+{
+  vector<Vector3r> segments=Tes->getExtendedAlphaGraph(alpha,shrinkedAlpha,fixedAlpha);
+  boost::python::list ret;
+  for (auto f=segments.begin();f!=segments.end();f++)
+        ret.append(*f);
+  return ret;
+}
+
+boost::python::list TesselationWrapper::getAlphaVertices(double alpha)
+{
+	vector<int> vertices=Tes->getAlphaVertices(alpha);
+	boost::python::list ret;
+	for (auto f=vertices.begin();f!=vertices.end();f++)
+		ret.append(*f);
+	return ret;
 }
 
 #endif /* YADE_CGAL */

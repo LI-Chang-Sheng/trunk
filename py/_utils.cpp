@@ -1,6 +1,5 @@
 #include <py/_utils.hpp>
-
-bool isInBB(Vector3r p, Vector3r bbMin, Vector3r bbMax){return p[0]>bbMin[0] && p[0]<bbMax[0] && p[1]>bbMin[1] && p[1]<bbMax[1] && p[2]>bbMin[2] && p[2]<bbMax[2];}
+#include <numpy/arrayobject.h>
 
 py::tuple negPosExtremeIds(int axis, Real distFactor){
 	py::tuple extrema=Shop::aabbExtrema();
@@ -19,7 +18,7 @@ py::tuple coordsAndDisplacements(int axis,py::tuple Aabb){
 	if(useBB){bbMin=py::extract<Vector3r>(Aabb[0])();bbMax=py::extract<Vector3r>(Aabb[1])();}
 	py::list retCoord,retDispl;
 	FOREACH(const shared_ptr<Body>&b, *Omega::instance().getScene()->bodies){
-		if(useBB && !isInBB(b->state->pos,bbMin,bbMax)) continue;
+		if(useBB && !Shop::isInBB(b->state->pos,bbMin,bbMax)) continue;
 		retCoord.append(b->state->pos[axis]);
 		retDispl.append(b->state->pos[axis]-b->state->refPos[axis]);
 	}
@@ -50,7 +49,7 @@ py::tuple interactionAnglesHistogram(int axis, int mask, size_t bins, py::tuple 
 		if(!i->isReal()) continue;
 		const shared_ptr<Body>& b1=Body::byId(i->getId1(),rb), b2=Body::byId(i->getId2(),rb);
 		if(!b1->maskOk(mask) || !b2->maskOk(mask)) continue;
-		if(useBB && !isInBB(b1->state->pos,bbMin,bbMax) && !isInBB(b2->state->pos,bbMin,bbMax)) continue;
+		if(useBB && !Shop::isInBB(b1->state->pos,bbMin,bbMax) && !Shop::isInBB(b2->state->pos,bbMin,bbMax)) continue;
 		if (sphSph && ( !dynamic_cast<Sphere*>(b1->shape.get()) || !dynamic_cast<Sphere*>(b2->shape.get()) ) ) continue;
 		GenericSpheresContact* geom=dynamic_cast<GenericSpheresContact*>(i->geom.get());
 		if(!geom) continue;
@@ -73,11 +72,11 @@ py::tuple bodyNumInteractionsHistogram(py::tuple aabb){
 	FOREACH(const shared_ptr<Interaction>& i, *rb->interactions){
 		if(!i->isReal()) continue;
 		const Body::id_t id1=i->getId1(), id2=i->getId2(); const shared_ptr<Body>& b1=Body::byId(id1,rb), b2=Body::byId(id2,rb);
-		if((useBB && isInBB(b1->state->pos,bbMin,bbMax)) || !useBB) {
+		if((useBB && Shop::isInBB(b1->state->pos,bbMin,bbMax)) || !useBB) {
 			if (b1->isClumpMember()) bodyNumIntr[b1->clumpId]+=1; //count bodyNumIntr for the clump, not for the member 
 			else bodyNumIntr[id1]+=1;
 		}
-		if((useBB && isInBB(b2->state->pos,bbMin,bbMax)) || !useBB) {
+		if((useBB && Shop::isInBB(b2->state->pos,bbMin,bbMax)) || !useBB) {
 			if (b2->isClumpMember()) bodyNumIntr[b2->clumpId]+=1; //count bodyNumIntr for the clump, not for the member 
 			else bodyNumIntr[id2]+=1;
 		}
@@ -92,7 +91,7 @@ py::tuple bodyNumInteractionsHistogram(py::tuple aabb){
 			if(bodyNumIntr[id]>0) bins[bodyNumIntr[id]]+=1;
 			// 0 is handled specially: add body to the 0 bin only if it is inside the bb requested (if applicable)
 			// otherwise don't do anything, since it is outside the volume of interest
-			else if(((useBB && isInBB(b->state->pos,bbMin,bbMax)) || !useBB) && !(b->isClumpMember())) bins[0]+=1;
+			else if(((useBB && Shop::isInBB(b->state->pos,bbMin,bbMax)) || !useBB) && !(b->isClumpMember())) bins[0]+=1;
 		}
 	}
 	py::list count,num;
@@ -345,7 +344,7 @@ Real Shop__getPorosity(Real volume){ return Shop::getPorosity(Omega::instance().
 Real Shop__getVoxelPorosity(int resolution, Vector3r start,Vector3r end){ return Shop::getVoxelPorosity(Omega::instance().getScene(),resolution,start,end); }
 
 //Matrix3r Shop__stressTensorOfPeriodicCell(bool smallStrains=false){return Shop::stressTensorOfPeriodicCell(smallStrains);}
-py::tuple Shop__fabricTensor(bool splitTensor, bool revertSign, Real thresholdForce){return Shop::fabricTensor(splitTensor,revertSign,thresholdForce);}
+py::tuple Shop__fabricTensor(Real cutoff, bool splitTensor, Real thresholdForce){return Shop::fabricTensor(cutoff, splitTensor,thresholdForce);}
 py::tuple Shop__normalShearStressTensors(bool compressionPositive, bool splitNormalTensor, Real thresholdForce){return Shop::normalShearStressTensors(compressionPositive,splitNormalTensor,thresholdForce);}
 
 py::list Shop__getStressLWForEachBody(){return Shop::getStressLWForEachBody();}
@@ -414,25 +413,60 @@ Real Shop__getSpheresVolume2D(int mask=-1){ return Shop::getSpheresVolume2D(Omeg
 Real Shop__getVoidRatio2D(Real zlen=1){ return Shop::getVoidRatio2D(Omega::instance().getScene(),zlen);}
 py::tuple Shop__getStressAndTangent(Real volume=0, bool symmetry=true){return Shop::getStressAndTangent(volume,symmetry);}
 
-BOOST_PYTHON_MODULE(_utils){
-	// http://numpy.scipy.org/numpydoc/numpy-13.html mentions this must be done in module init, otherwise we will crash
-	import_array();
+void setBodyPosition(int id, Vector3r newPos, string axis){
+	shared_ptr<Scene> rb=Omega::instance().getScene();
+	const Body* b=(*rb->bodies)[id].get();
+	for (char c : axis){
+		if(c=='x') {b->state->pos[0] = newPos[0];continue;}
+		if(c=='y') {b->state->pos[1] = newPos[1];continue;}
+		if(c=='z') {b->state->pos[2] = newPos[2];continue;}
+	}
+}
 
+void setBodyVelocity(int id, Vector3r newVel, string axis){
+	shared_ptr<Scene> rb=Omega::instance().getScene();
+	const Body* b=(*rb->bodies)[id].get();
+	for (char c : axis){
+		if(c=='x') {b->state->vel[0] = newVel[0];continue;}
+		if(c=='y') {b->state->vel[1] = newVel[1];continue;}
+		if(c=='z') {b->state->vel[2] = newVel[2];continue;}
+	}
+}
+
+void setBodyOrientation(int id, Quaternionr newOri){
+	shared_ptr<Scene> rb=Omega::instance().getScene();
+	const Body* b=(*rb->bodies)[id].get();
+	b->state->ori=newOri;
+}
+
+void setBodyAngularVelocity(int id, Vector3r newAngVel){
+	shared_ptr<Scene> rb=Omega::instance().getScene();
+	const Body* b=(*rb->bodies)[id].get();
+	b->state->angVel=newAngVel;
+}
+
+void setBodyColor(int id, Vector3r newColor){
+  shared_ptr<Scene> rb=Omega::instance().getScene();
+	const Body* b=(*rb->bodies)[id].get();
+	b->shape->color=newColor;
+}
+
+BOOST_PYTHON_MODULE(_utils){
 	YADE_SET_DOCSTRING_OPTS;
 
 	py::def("PWaveTimeStep",PWaveTimeStep,"Get timestep accoring to the velocity of P-Wave propagation; computed from sphere radii, rigidities and masses.");
 	py::def("RayleighWaveTimeStep",RayleighWaveTimeStep,"Determination of time step according to Rayleigh wave speed of force propagation.");
-	py::def("getSpheresVolume",Shop__getSpheresVolume,(py::arg("mask")=-1),"Compute the total volume of spheres in the simulation (might crash for now if dynamic bodies are not spheres), mask parameter is considered");
-	py::def("getSpheresMass",Shop__getSpheresMass,(py::arg("mask")=-1),"Compute the total mass of spheres in the simulation (might crash for now if dynamic bodies are not spheres), mask parameter is considered");
+	py::def("getSpheresVolume",Shop__getSpheresVolume,(py::arg("mask")=-1),"Compute the total volume of spheres in the simulation, mask parameter is considered");
+	py::def("getSpheresMass",Shop__getSpheresMass,(py::arg("mask")=-1),"Compute the total mass of spheres in the simulation, mask parameter is considered");
 	py::def("porosity",Shop__getPorosity,(py::arg("volume")=-1),"Compute packing porosity $\\frac{V-V_s}{V}$ where $V$ is overall volume and $V_s$ is volume of spheres.\n\n:param float volume: overall volume $V$. For periodic simulations, current volume of the :yref:`Cell` is used. For aperiodic simulations, the value deduced from utils.aabbDim() is used. For compatibility reasons, positive values passed by the user are also accepted in this case.\n");
 	py::def("voxelPorosity",Shop__getVoxelPorosity,(py::arg("resolution")=200,py::arg("start")=Vector3r(0,0,0),py::arg("end")=Vector3r(0,0,0)),"Compute packing porosity $\\frac{V-V_v}{V}$ where $V$ is a specified volume (from start to end) and $V_v$ is volume of voxels that fall inside any sphere. The calculation method is to divide whole volume into a dense grid of voxels (at given resolution), and count the voxels that fall inside any of the spheres. This method allows one to calculate porosity in any given sub-volume of a whole sample. It is properly excluding part of a sphere that does not fall inside a specified volume.\n\n:param int resolution: voxel grid resolution, values bigger than resolution=1600 require a 64 bit operating system, because more than 4GB of RAM is used, a resolution=800 will use 500MB of RAM.\n:param Vector3 start: start corner of the volume.\n:param Vector3 end: end corner of the volume.\n");
-	py::def("aabbExtrema",Shop::aabbExtrema,(py::arg("cutoff")=0.0,py::arg("centers")=false),"Return coordinates of box enclosing all bodies\n\n:param bool centers: do not take sphere radii in account, only their centroids\n:param float∈〈0…1〉 cutoff: relative dimension by which the box will be cut away at its boundaries.\n\n\n:return: (lower corner, upper corner) as (Vector3,Vector3)\n\n");
-	py::def("ptInAABB",isInBB,"Return True/False whether the point p is within box given by its min and max corners");
+	py::def("aabbExtrema",Shop::aabbExtrema,(py::arg("cutoff")=0.0,py::arg("centers")=false),"Return coordinates of box enclosing all spherical bodies\n\n:param bool centers: do not take sphere radii in account, only their centroids\n:param float∈〈0…1〉 cutoff: relative dimension by which the box will be cut away at its boundaries.\n\n\n:return: [lower corner, upper corner] as [Vector3,Vector3]\n\n");
+	py::def("ptInAABB",Shop::isInBB,"Return True/False whether the point p is within box given by its min and max corners");
 	py::def("negPosExtremeIds",negPosExtremeIds,(py::arg("axis"),py::arg("distFactor")),"Return list of ids for spheres (only) that are on extremal ends of the specimen along given axis; distFactor multiplies their radius so that sphere that do not touch the boundary coordinate can also be returned.");
 	py::def("approxSectionArea",approxSectionArea,"Compute area of convex hull when when taking (swept) spheres crossing the plane at coord, perpendicular to axis.");
 	py::def("coordsAndDisplacements",coordsAndDisplacements,(py::arg("axis"),py::arg("Aabb")=py::tuple()),"Return tuple of 2 same-length lists for coordinates and displacements (coordinate minus reference coordinate) along given axis (1st arg); if the Aabb=((x_min,y_min,z_min),(x_max,y_max,z_max)) box is given, only bodies within this box will be considered.");
 	py::def("setRefSe3",setRefSe3,"Set reference :yref:`positions<State::refPos>` and :yref:`orientations<State::refOri>` of all :yref:`bodies<Body>` equal to their current :yref:`positions<State::pos>` and :yref:`orientations<State::ori>`.");
-	py::def("interactionAnglesHistogram",interactionAnglesHistogram,(py::arg("axis"),py::arg("mask"),py::arg("bins"),py::arg("aabb"),py::arg("sphSph"),py::arg("minProjLen")));
+	py::def("interactionAnglesHistogram",interactionAnglesHistogram,(py::arg("axis"),py::arg("mask")=0,py::arg("bins")=20,py::arg("aabb")=py::tuple(),py::arg("sphSph")=0,py::arg("minProjLen")=1e-6));
 	py::def("bodyNumInteractionsHistogram",bodyNumInteractionsHistogram,(py::arg("aabb")));
 	py::def("inscribedCircleCenter",inscribedCircleCenter,(py::arg("v1"),py::arg("v2"),py::arg("v3")),"Return center of inscribed circle for triangle given by its vertices *v1*, *v2*, *v3*.");
 	py::def("unbalancedForce",&Shop__unbalancedForce,(py::args("useMaxForce")=false),"Compute the ratio of mean (or maximum, if *useMaxForce*) summary force on bodies and mean force magnitude on interactions. For perfectly static equilibrium, summary force on all bodies is zero (since forces from interactions cancel out and induce no acceleration of particles); this ratio will tend to zero as simulation stabilizes, though zero is never reached because of finite precision computation. Sufficiently small value can be e.g. 1e-2 or smaller, depending on how much equilibrium it should be.");
@@ -451,15 +485,19 @@ BOOST_PYTHON_MODULE(_utils){
 	py::def("wireAll",wireAll,"Set :yref:`Shape::wire` on all bodies to True, rendering them with wireframe only.");
 	py::def("wireNone",wireNone,"Set :yref:`Shape::wire` on all bodies to False, rendering them as solids.");
 	py::def("wireNoSpheres",wireNoSpheres,"Set :yref:`Shape::wire` to True on non-spherical bodies (:yref:`Facets<Facet>`, :yref:`Walls<Wall>`).");
-	py::def("flipCell",&Shop::flipCell,(py::arg("flip")=Matrix3r(Matrix3r::Zero())),"Flip periodic cell so that angles between $R^3$ axes and transformed axes are as small as possible. This function relies on the fact that periodic cell defines by repetition or its corners regular grid of points in $R^3$; however, all cells generating identical grid are equivalent and can be flipped one over another. This necessiatates adjustment of :yref:`Interaction.cellDist` for interactions that cross boundary and didn't before (or vice versa), and re-initialization of collider. The *flip* argument can be used to specify desired flip: integers, each column for one axis; if zero matrix, best fit (minimizing the angles) is computed automatically.\n\nIn c++, this function is accessible as ``Shop::flipCell``.\n\n.. warning:: This function is currently broken and should not be used.");
+	py::def("flipCell",&Shop::flipCell,(py::arg("flip")=Matrix3r(Matrix3r::Zero())),"Flip periodic cell so that angles between $R^3$ axes and transformed axes are as small as possible. This function relies on the fact that periodic cell defines by repetition or its corners regular grid of points in $R^3$; however, all cells generating identical grid are equivalent and can be flipped one over another. This necessiatates adjustment of :yref:`Interaction.cellDist` for interactions that cross boundary and didn't before (or vice versa), and re-initialization of collider. The *flip* argument can be used to specify desired flip: integers, each column for one axis; if zero matrix, best fit (minimizing the angles) is computed automatically.\n\nIn c++, this function is accessible as ``Shop::flipCell``.");
 	py::def("getViscoelasticFromSpheresInteraction",getViscoelasticFromSpheresInteraction,(py::arg("tc"),py::arg("en"),py::arg("es")),"Attention! The function is deprecated! Compute viscoelastic interaction parameters from analytical solution of a pair spheres collision problem:\n\n.. math:: k_n=\\frac{m}{t_c^2}\\left(\\pi^2+(\\ln e_n)^2\\right) \\\\ c_n=-\\frac{2m}{t_c}\\ln e_n \\\\  k_t=\\frac{2}{7}\\frac{m}{t_c^2}\\left(\\pi^2+(\\ln e_t)^2\\right) \\\\ c_t=-\\frac{2}{7}\\frac{m}{t_c}\\ln e_t \n\n\nwhere $k_n$, $c_n$ are normal elastic and viscous coefficients and $k_t$, $c_t$ shear elastic and viscous coefficients. For details see [Pournin2001]_.\n\n:param float m: sphere mass $m$\n:param float tc: collision time $t_c$\n:param float en: normal restitution coefficient $e_n$\n:param float es: tangential restitution coefficient $e_s$\n:return: dictionary with keys ``kn`` (the value of $k_n$), ``cn`` ($c_n$), ``kt`` ($k_t$), ``ct`` ($c_t$).");
 	py::def("stressTensorOfPeriodicCell",Shop::getStress,(py::args("volume")=0),"Deprecated, use utils.getStress instead |ydeprecated|");
 	py::def("normalShearStressTensors",Shop__normalShearStressTensors,(py::args("compressionPositive")=false,py::args("splitNormalTensor")=false,py::args("thresholdForce")=NaN),"Compute overall stress tensor of the periodic cell decomposed in 2 parts, one contributed by normal forces, the other by shear forces. The formulation can be found in [Thornton2000]_, eq. (3):\n\n.. math:: \\tens{\\sigma}_{ij}=\\frac{2}{V}\\sum R N \\vec{n}_i \\vec{n}_j+\\frac{2}{V}\\sum R T \\vec{n}_i\\vec{t}_j\n\nwhere $V$ is the cell volume, $R$ is \"contact radius\" (in our implementation, current distance between particle centroids), $\\vec{n}$ is the normal vector, $\\vec{t}$ is a vector perpendicular to $\\vec{n}$, $N$ and $T$ are norms of normal and shear forces.\n\n:param bool splitNormalTensor: if true the function returns normal stress tensor split into two parts according to the two subnetworks of strong an weak forces.\n\n:param Real thresholdForce: threshold value according to which the normal stress tensor can be split (e.g. a zero value would make distinction between tensile and compressive forces).");
-	py::def("fabricTensor",Shop__fabricTensor,(py::args("splitTensor")=false,py::args("revertSign")=false,py::args("thresholdForce")=NaN),"Compute the fabric tensor of the periodic cell. The original paper can be found in [Satake1982]_.\n\n:param bool splitTensor: split the fabric tensor into two parts related to the strong and weak contact forces respectively.\n\n:param bool revertSign: it must be set to true if the contact law's convention takes compressive forces as positive.\n\n:param Real thresholdForce: if the fabric tensor is split into two parts, a threshold value can be specified otherwise the mean contact force is considered by default. It is worth to note that this value has a sign and the user needs to set it according to the convention adopted for the contact law. To note that this value could be set to zero if one wanted to make distinction between compressive and tensile forces.");
+	py::def("fabricTensor",Shop__fabricTensor,(py::args("cutoff")=0.0,py::args("splitTensor")=false,py::args("thresholdForce")=NaN),"Computes the fabric tensor $F_{ij}=\\frac{1}{n_c}\\sum_c n_i n_j$ [Satake1982]_, for all interactions $c$.\n\n:param Real cutoff: intended to disregard boundary effects: to define in [0;1] to focus on the interactions located in the centered inner (1-cutoff)^3*$V$ part of the spherical packing $V$.\n\n:param bool splitTensor: split the fabric tensor into two parts related to the strong (greatest compressive normal forces) and weak contact forces respectively.\n\n:param Real thresholdForce: if the fabric tensor is split into two parts, a threshold value can be specified otherwise the mean contact force is considered by default. Use negative signed values for compressive states. To note that this value could be set to zero if one wanted to make distinction between compressive and tensile forces.");
 	py::def("bodyStressTensors",Shop__getStressLWForEachBody,"Compute and return a table with per-particle stress tensors. Each tensor represents the average stress in one particle, obtained from the contour integral of applied load as detailed below. This definition is considering each sphere as a continuum. It can be considered exact in the context of spheres at static equilibrium, interacting at contact points with negligible volume changes of the solid phase (this last assumption is not restricting possible deformations and volume changes at the packing scale).\n\nProof: \n\nFirst, we remark the identity:  $\\sigma_{ij}=\\delta_{ik}\\sigma_{kj}=x_{i,k}\\sigma_{kj}=(x_{i}\\sigma_{kj})_{,k}-x_{i}\\sigma_{kj,k}$.\n\nAt equilibrium, the divergence of stress is null: $\\sigma_{kj,k}=\\vec{0}$. Consequently, after divergence theorem: $\\frac{1}{V}\\int_V \\sigma_{ij}dV = \\frac{1}{V}\\int_V (x_{i}\\sigma_{kj})_{,k}dV = \\frac{1}{V}\\int_{\\partial V}x_i\\sigma_{kj}n_kdS = \\frac{1}{V}\\sum_bx_i^bf_j^b$.\n\nThe last equality is implicitely based on the representation of external loads as Dirac distributions whose zeros are the so-called *contact points*: 0-sized surfaces on which the *contact forces* are applied, located at $x_i$ in the deformed configuration.\n\nA weighted average of per-body stresses will give the average stress inside the solid phase. There is a simple relation between the stress inside the solid phase and the stress in an equivalent continuum in the absence of fluid pressure. For porosity $n$, the relation reads: $\\sigma_{ij}^{equ.}=(1-n)\\sigma_{ij}^{solid}$.\n\nThis last relation may not be very useful if porosity is not homogeneous. If it happens, one can define the equivalent bulk stress a the particles scale by assigning a volume to each particle. This volume can be obtained from :yref:`TesselationWrapper` (see e.g. [Catalano2014a]_)");
+    py::def("getDynamicStress",Shop::getDynamicStress,  "Compute the dynamic stress tensor for each body: $\\sigma^p_D= - \\frac{1}{V^p} m^p u'^p \\otimes u'^p$");
+    py::def("getTotalDynamicStress",Shop::getTotalDynamicStress, (py::args("volume")=0), "Compute the total dynamic stress tensor : $\\sigma_D= - \\frac{1}{V}\\sum_p m^p u'^p \\otimes u'^p$. The volume have to be provided for non-periodic simulations. It is computed from cell volume for periodic simulations.");
 	py::def("getStress",Shop::getStress,(py::args("volume")=0),"Compute and return Love-Weber stress tensor:\n\n $\\sigma_{ij}=\\frac{1}{V}\\sum_b f_i^b l_j^b$, where the sum is over all interactions, with $f$ the contact force and $l$ the branch vector (joining centers of the bodies). Stress is negativ for repulsive contact forces, i.e. compression. $V$ can be passed to the function. If it is not, it will be equal to the volume of the cell in periodic cases, or to the one deduced from utils.aabbDim() in non-periodic cases.");
 	py::def("getStressProfile",Shop::getStressProfile,(py::args("volume"),py::args("nCell"),py::args("dz"),py::args("zRef"),py::args("vPartAverageX"),py::args("vPartAverageY"),py::args("vPartAverageZ")),"Compute and return the stress tensor depth profile, including the contribution from Love-Weber stress tensor and the dynamic stress tensor taking into account the effect of particles inertia. For each defined cell z, the stress tensor reads: \n\n $\\sigma_{ij}^z= \\frac{1}{V}\\sum_c f_i^c l_j^{c,z} - \\frac{1}{V}\\sum_p m^p u'^p_i u'^p_j$,\n\n where the first sum is made over the contacts which are contained or cross the cell z, f^c is the contact force from particle 1 to particle 2, and l^{c,z} is the part of the branch vector from particle 2 to particle 1, contained in the cell. The second sum is made over the particles, and u'^p is the velocity fluctuations of the particle p with respect to the spatial averaged particle velocity at this point (given as input parameters). The expression of the stress tensor is the same as the one given in getStress plus the inertial contribution. Apart from that, the main difference with getStress stands in the fact that it gives a depth profile of stress tensor, i.e. from the reference horizontal plane at elevation zRef (input parameter) until the plane of elevation zRef+nCell*dz (input parameters), it is computing the stress tensor for each cell of height dz. For the love-Weber stress contribution, the branch vector taken into account in the calculations is only the part of the branch vector contained in the cell considered.\n To validate the formulation, it has been checked that activating only the Love-Weber stress tensor, and suming all the contributions at the different altitude, we recover the same stress tensor as when using getStress. For my own use, I have troubles with strong overlap between fixed object, so that I made a condition to exclude the contribution to the stress tensor of the fixed objects, this can be desactivated easily if needed (and should be desactivated for the comparison with getStress)." );
-	py::def("getDepthProfiles",Shop::getDepthProfiles,(py::args("volume"),py::args("nCell"),py::args("dz"),py::args("zRef"),py::args("activateCond"),py::args("radiusPy")),"Compute and return the particle velocity and solid volume fraction (porosity) depth profile. For each defined cell z, the k component of the average particle velocity reads: \n\n $<v_k>^z= \\sum_p V^p v_k^p/\\sum_p V^p$,\n\n where the sum is made over the particles contained in the cell, $v_k^p$ is the k component of the velocity associated to particle p, and $V^p$ is the part of the volume of the particle p contained inside the cell. This definition allows to smooth the averaging, and is equivalent to taking into account the center of the particles only when there is a lot of particles in each cell. As for the solid volume fraction, it is evaluated in the same way:  for each defined cell z, it reads: \n\n $<\\phi>^z= \\frac{1}{V_{cell}}\\sum_p V^p$, where $V_{cell}$ is the volume of the cell considered, and $V^p$ is the volume of particle p contained in cell z.\n This function gives depth profiles of average velocity and solid volume fraction, returning the average quantities in each cell of height dz, from the reference horizontal plane at elevation zRef (input parameter) until the plane of elevation zRef+nCell*dz (input parameters). If the argument activateCond is set to true, do the average only on particles of radius equal to radiusPy (input parameter)" );
+	py::def("getStressProfile_contact",Shop::getStressProfile_contact,(py::args("volume"),py::args("nCell"),py::args("dz"),py::args("zRef")),"same as getStressProfile, only contact contribution." );
+        py::def("getDepthProfiles",Shop::getDepthProfiles,(py::args("volume"),py::args("nCell"),py::args("dz"),py::args("zRef"),py::args("activateCond"),py::args("radiusPy"),py::args("direction")),"Compute and return the particle velocity and solid volume fraction (porosity) depth profile along the direction specified (default is z; 0=>x,1=>y,2=>z). For each defined cell z, the k component of the average particle velocity reads: \n\n $<v_k>^z= \\sum_p V^p v_k^p/\\sum_p V^p$,\n\n where the sum is made over the particles contained in the cell, $v_k^p$ is the k component of the velocity associated to particle p, and $V^p$ is the part of the volume of the particle p contained inside the cell. This definition allows to smooth the averaging, and is equivalent to taking into account the center of the particles only when there is a lot of particles in each cell. As for the solid volume fraction, it is evaluated in the same way:  for each defined cell z, it reads: \n\n $<\\phi>^z= \\frac{1}{V_{cell}}\\sum_p V^p$, where $V_{cell}$ is the volume of the cell considered, and $V^p$ is the volume of particle p contained in cell z.\n This function gives depth profiles of average velocity and solid volume fraction, returning the average quantities in each cell of height dz, from the reference horizontal plane at elevation zRef (input parameter) until the plane of elevation zRef+nCell*dz (input parameters). If the argument activateCond is set to true, do the average only on particles of radius equal to radiusPy (input parameter)" );
+	py::def("getDepthProfiles_center",Shop::getDepthProfiles_center,(py::args("volume"),py::args("nCell"),py::args("dz"),py::args("zRef"),py::args("activateCond"),py::args("radiusPy")),"Same as getDepthProfiles but taking into account particles as points located at the particle center." );
 	py::def("getCapillaryStress",Shop::getCapillaryStress,(py::args("volume")=0,py::args("mindlin")=false),"Compute and return Love-Weber capillary stress tensor:\n\n $\\sigma^{cap}_{ij}=\\frac{1}{V}\\sum_b l_i^b f^{cap,b}_j$, where the sum is over all interactions, with $l$ the branch vector (joining centers of the bodies) and $f^{cap}$ is the capillary force. $V$ can be passed to the function. If it is not, it will be equal to one in non-periodic cases, or equal to the volume of the cell in periodic cases. Only the CapillaryPhys interaction type is supported presently. Using this function with physics MindlinCapillaryPhys needs to pass True as second argument.");
 	py::def("getBodyIdsContacts",Shop__getBodyIdsContacts,(py::args("bodyID")=0),"Get a list of body-ids, which contacts the given body.");
 	py::def("maxOverlapRatio",maxOverlapRatio,"Return maximum overlap ration in interactions (with :yref:`ScGeom`) of two :yref:`spheres<Sphere>`. The ratio is computed as $\\frac{u_N}{2(r_1 r_2)/r_1+r_2}$, where $u_N$ is the current overlap distance and $r_1$, $r_2$ are radii of the two spheres in contact.");
@@ -467,7 +505,7 @@ BOOST_PYTHON_MODULE(_utils){
 	py::def("calm",Shop__calm,(py::arg("mask")=-1),"Set translational and rotational velocities of bodies to zero. Applied to all bodies by default. To calm only some bodies, use mask parameter, it will calm only bodies with groupMask compatible to given value");
 	py::def("setNewVerticesOfFacet",setNewVerticesOfFacet,(py::arg("b"),py::arg("v1"),py::arg("v2"),py::arg("v3")),"Sets new vertices (in global coordinates) to given facet.");
 	py::def("setContactFriction",Shop::setContactFriction,py::arg("angleRad"),"Modify the friction angle (in radians) inside the material classes and existing contacts. The friction for non-dynamic bodies is not modified.");
-	py::def("growParticles",Shop::growParticles,(py::args("multiplier"), py::args("updateMass")=true, py::args("dynamicOnly")=true), "Change the size of spheres and sphere clumps by the multiplier. If updateMass=True, then the mass and inertia are updated. dynamicOnly=True will select dynamic bodies.");
+	py::def("growParticles",Shop::growParticles,(py::args("multiplier"), py::args("updateMass")=true, py::args("dynamicOnly")=true), "Change the size of spheres and clumps of spheres by the multiplier. If updateMass=True, then the mass and inertia are updated. dynamicOnly=True will select dynamic bodies.");
 	py::def("growParticle",Shop::growParticle,(py::args("bodyID"),py::args("multiplier"), py::args("updateMass")=true), "Change the size of a single sphere (to be implemented: single clump). If updateMass=True, then the mass is updated.");
 	py::def("intrsOfEachBody",intrsOfEachBody,"returns list of lists of interactions of each body");
 	py::def("numIntrsOfEachBody",numIntrsOfEachBody,"returns list of number of interactions of each body");
@@ -478,7 +516,12 @@ BOOST_PYTHON_MODULE(_utils){
 	py::def("TetrahedronWithLocalAxesPrincipal",TetrahedronWithLocalAxesPrincipal,"TODO");
 	py::def("momentum",Shop::momentum,"TODO");
 	py::def("angularMomentum",Shop::angularMomentum,(py::args("origin")=Vector3r(Vector3r::Zero())),"TODO");
-	py::def("getSpheresVolume2D",Shop__getSpheresVolume2D,(py::arg("mask")=-1),"Compute the total volume of discs in the simulation (might crash for now if dynamic bodies are not discs), mask parameter is considered");
+	py::def("getSpheresVolume2D",Shop__getSpheresVolume2D,(py::arg("mask")=-1),"Compute the total volume of discs in the simulation, mask parameter is considered");
 	py::def("voidratio2D",Shop__getVoidRatio2D,(py::arg("zlen")=1),"Compute 2D packing void ratio $\\frac{V-V_s}{V_s}$ where $V$ is overall volume and $V_s$ is volume of disks.\n\n:param float zlen: length in the third direction.\n");
 	py::def("getStressAndTangent",Shop__getStressAndTangent,(py::args("volume")=0,py::args("symmetry")=true),"Compute overall stress of periodic cell using the same equation as function getStress. In addition, the tangent operator is calculated using the equation published in [Kruyt and Rothenburg1998]_:\n\n.. math:: S_{ijkl}=\\frac{1}{V}\\sum_{c}(k_n n_i l_j n_k l_l + k_t t_i l_j t_k l_l)\n\n:param float volume: same as in function getStress\n:param bool symmetry: make the tensors symmetric.\n\n:return: macroscopic stress tensor and tangent operator as py::tuple");
+	py::def("setBodyPosition",setBodyPosition,(py::args("id"),py::args("pos"),py::args("axis")="xyz"),"Set a body position from its id and a new vector3r.\n\n:param int id: the body id.\n:param Vector3 pos: the desired updated position.\n:param str axis: the axis along which the position has to be updated (ex: if axis==\"xy\" and pos==Vector3r(r0,r1,r2), r2 will be ignored and the position along z will not be updated).");
+	py::def("setBodyVelocity",setBodyVelocity,(py::args("id"),py::args("vel"),py::args("axis")="xyz"),"Set a body velocity from its id and a new vector3r.\n\n:param int id: the body id.\n:param Vector3 vel: the desired updated velocity.\n:param str axis: the axis along which the velocity has to be updated (ex: if axis==\"xy\" and vel==Vector3r(r0,r1,r2), r2 will be ignored and the velocity along z will not be updated).");
+	py::def("setBodyOrientation",setBodyOrientation,(py::args("id"),py::args("ori")),"Set a body orientation from its id and a new Quaternionr.\n\n:param int id: the body id.\n:param Quaternion ori: the desired updated orientation.");
+	py::def("setBodyAngularVelocity",setBodyAngularVelocity,(py::args("id"),py::args("angVel")),"Set a body angular velocity from its id and a new Vector3r.\n\n:param int id: the body id.\n:param Vector3 angVel: the desired updated angular velocity.");
+	py::def("setBodyColor",setBodyColor,(py::args("id"),py::args("color")),"Set a body color from its id and a new Vector3r.\n\n:param int id: the body id.\n:param Vector3 color: the desired updated color.");
 }

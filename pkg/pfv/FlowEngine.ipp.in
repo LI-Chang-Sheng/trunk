@@ -14,12 +14,12 @@
 #endif
 //For pyRunString
 #include<lib/pyutil/gil.hpp>
+#include<pkg/dem/JointedCohesiveFrictionalPM.hpp>
 
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::~TemplateFlowEngine_@TEMPLATE_FLOW_NAME@() {}
 
 // YADE_PLUGIN((TFlowEng));
-
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 unsigned int TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::imposePressure(Vector3r pos, Real p)
 {
@@ -41,6 +41,10 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 {
        if ( !isActivated ) return;
         timingDeltas->start();
+        if (desiredPorosity != 0){
+	    Real actualPorosity = Shop::getPorosityAlt();
+	    volumeCorrection = desiredPorosity/actualPorosity;
+        }	
 	setPositionsBuffer(true);
 	timingDeltas->checkpoint ( "Position buffer" );
         if (first) {
@@ -60,40 +64,29 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
         epsVolCumulative += epsVolMax;
 	retriangulationLastIter++;
 	if (!updateTriangulation) updateTriangulation = // If not already set true by another function of by the user, check conditions
-		(defTolerance>0 && epsVolCumulative > defTolerance) || retriangulationLastIter>meshUpdateInterval;
+		(defTolerance>0 && epsVolCumulative > defTolerance) || (meshUpdateInterval>0 && retriangulationLastIter>meshUpdateInterval);
+
+	// remesh everytime a bond break occurs (for DFNFlow-JCFPM coupling)
+	if (breakControlledRemesh) remeshForFreshlyBrokenBonds();
 
         ///compute flow and and forces here
 	if (pressureForce){
+	#ifdef LINSOLV
+		permUpdateIters++;
+		if (fixTriUpdatePermInt>0 && permUpdateIters >= fixTriUpdatePermInt) updateLinearSystem(*solver);
+	#endif
 		solver->gaussSeidel(scene->dt);
-		timingDeltas->checkpoint ( "Gauss-Seidel (includes matrix construct and factorization in single-thread mode)" );
+		timingDeltas->checkpoint ( "Factorize + Solve" );
 		solver->computeFacetForcesWithCache();}
         timingDeltas->checkpoint ( "compute_Forces" );
         ///Application of vicscous forces
-        scene->forces.sync();
+        if (!decoupleForces) scene->forces.sync();
 	timingDeltas->checkpoint ( "forces.sync()" );
-	computeViscousForces ( *solver );
+	if (!decoupleForces) computeViscousForces ( *solver );
 	timingDeltas->checkpoint ( "viscous forces" );
-	Vector3r force;
-	Vector3r torque;
-        FiniteVerticesIterator verticesEnd = solver->T[solver->currentTes].Triangulation().finite_vertices_end();
-        for ( FiniteVerticesIterator vIt = solver->T[solver->currentTes].Triangulation().finite_vertices_begin(); vIt !=  verticesEnd; vIt++ ) {
-		force = pressureForce ? Vector3r ( vIt->info().forces[0],vIt->info().forces[1],vIt->info().forces[2] ): Vector3r(0,0,0);
-		torque = Vector3r(0,0,0);
-                if (shearLubrication || viscousShear){
-			force = force + solver->shearLubricationForces[vIt->info().id()];
-			torque = torque + solver->shearLubricationTorques[vIt->info().id()];
-			if (pumpTorque)
-				torque = torque + solver->pumpLubricationTorques[vIt->info().id()];
-		}
-		if (twistTorque)
-			torque = torque + solver->twistLubricationTorques[vIt->info().id()];
-		if (normalLubrication)
-			force = force + solver-> normalLubricationForce[vIt->info().id()];
-		scene->forces.addForce ( vIt->info().id(), force);
-		scene->forces.addTorque ( vIt->info().id(), torque);
-        }
-        ///End compute flow and forces
+	if (!decoupleForces) applyForces(*solver);
         timingDeltas->checkpoint ( "Applying Forces" );
+	///End compute flow and forces
 	#ifdef LINSOLV
 	int sleeping = 0;
 	if (multithread && !first) {
@@ -101,14 +94,24 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 		  sleeping++;
 		boost::this_thread::sleep(boost::posix_time::microseconds(1000));}
 		if (debug && sleeping) cerr<<"sleeping..."<<sleeping<<endl;
-		if (updateTriangulation || (ellapsedIter>(0.5*meshUpdateInterval) && backgroundCompleted)) {
+		if (updateTriangulation || ((meshUpdateInterval>0  && ellapsedIter>(0.5*meshUpdateInterval)) && backgroundCompleted)) {
 			if (debug) cerr<<"switch flow solver"<<endl;
 			if (useSolver==0) LOG_ERROR("background calculations not available for Gauss-Seidel");
-			if (fluidBulkModulus>0 || doInterpolate) solver->interpolate (solver->T[solver->currentTes], backgroundSolver->T[backgroundSolver->currentTes]);
-			solver=backgroundSolver;
+			if(!fluxChanged){
+				if (fluidBulkModulus>0 || doInterpolate) solver->interpolate (solver->T[solver->currentTes], backgroundSolver->T[backgroundSolver->currentTes]);
+				
+				
+
+			//Copy imposed pressures/flow from the old solver
+				backgroundSolver->imposedP = vector<pair<CGT::Point,Real> >(solver->imposedP);
+				backgroundSolver->imposedF = vector<pair<CGT::Point,Real> >(solver->imposedF);
+				solver=backgroundSolver;
+			} else {
+				fluxChanged=false;
+			}
+			
 			backgroundSolver = shared_ptr<FlowSolver> (new FlowSolver);
 			if (metisForced) {backgroundSolver->eSolver.cholmod().nmethods=1; backgroundSolver->eSolver.cholmod().method[0].ordering=CHOLMOD_METIS;}
-			//Copy imposed pressures/flow from the old solver
 			backgroundSolver->imposedP = vector<pair<CGT::Point,Real> >(solver->imposedP);
 			backgroundSolver->imposedF = vector<pair<CGT::Point,Real> >(solver->imposedF);
 			if (debug) cerr<<"switched"<<endl;
@@ -150,9 +153,10 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 {
 	if (useSolver<1) {LOG_ERROR("background calculations not available for Gauss-Seidel"); return;}
         buildTriangulation ( pZero,*backgroundSolver );
-	//FIXME: GS is computing too much, we need only matrix factorization in fact
+	backgroundSolver->factorizeOnly = true;
 	backgroundSolver->gaussSeidel(scene->dt);
-	//FIXME(2): and here we need only cached variables, not forces
+	backgroundSolver->factorizeOnly = false;
+	//FIXME(2): and here we need only cached variables, not forces <- this appears to be fixed already inside computeFacetForcesWithCache
 	backgroundSolver->computeFacetForcesWithCache(/*onlyCache?*/ true);
 // 	boost::this_thread::sleep(boost::posix_time::seconds(5));
  	backgroundCompleted = true;
@@ -169,6 +173,15 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 }
 
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
+void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::thermalBoundaryConditions ( Solver& flow )
+{
+	for (int k=0;k<6;k++)	{
+		flow.thermalBoundary (wallIds[k]).fluxCondition=!bndCondIsTemperature[k];
+                flow.thermalBoundary (wallIds[k]).value=thermalBndCondValue[k];
+	}
+}
+
+template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::setImposedPressure ( unsigned int cond, Real p)
 {
         if ( cond>=solver->imposedP.size() ) LOG_ERROR ( "Setting p with cond higher than imposedP size." );
@@ -179,12 +192,13 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::imposeFlux ( Vector3r pos, Real flux){
         solver->imposedF.push_back ( pair<CGT::Point,Real> ( CGT::Point ( pos[0],pos[1],pos[2] ), flux ) );
-	CellHandle cell=solver->T[solver->currentTes].Triangulation().locate(CGT::Point(pos[0],pos[1],pos[2]));
+	CellHandle cell=solver->T[solver->currentTes].Triangulation().locate(CGT::Sphere(pos[0],pos[1],pos[2]));
 	if (cell->info().isGhost) cerr<<"Imposing pressure in a ghost cell."<<endl;
 	for (unsigned int kk=0;kk<solver->IPCells.size();kk++){
 		if (cell==solver->IPCells[kk]) cerr<<"Both flux and pressure are imposed in the same cell."<<endl;
 		else if  (cell->info().Pcondition) cerr<<"Imposed flux fall in a pressure boundary condition."<<endl;}
 	solver->IFCells.push_back(cell);
+	fluxChanged=true;
 }
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::clearImposedPressure () { solver->imposedP.clear(); solver->IPCells.clear();}
@@ -210,10 +224,11 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
         flow.kFactor = permeabilityFactor;
         flow.debugOut = debug;
         flow.useSolver = useSolver;
-	#ifdef EIGENSPARSE_LIB
+	#ifdef CHOLMOD_LIBS
 	flow.numSolveThreads = numSolveThreads;
 	flow.numFactorizeThreads = numFactorizeThreads;
 	#endif
+	flow.factorizeOnly = false;
 	flow.meanKStat = meanKStat;
         flow.viscosity = viscosity;
         flow.tolerance=tolerance;
@@ -224,9 +239,15 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
         flow.meanKStat = meanKStat;
         flow.permeabilityMap = permeabilityMap;
         flow.fluidBulkModulus = fluidBulkModulus;
+	flow.fluidRho = fluidRho;
+	flow.fluidCp = fluidCp;
+	flow.thermalEngine = thermalEngine;
+	flow.multithread = multithread;
+	flow.getCHOLMODPerfTimings=getCHOLMODPerfTimings;
 //         flow.tesselation().Clear();
         flow.tesselation().maxId=-1;
 	flow.blockedCells.clear();
+	flow.sphericalVertexAreaCalculated=false;
         flow.xMin = 1000.0, flow.xMax = -10000.0, flow.yMin = 1000.0, flow.yMax = -10000.0, flow.zMin = 1000.0, flow.zMax = -10000.0;
 }
 
@@ -260,7 +281,6 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
         triangulate ( flow );
         if ( debug ) cout << endl << "Tesselating------" << endl << endl;
         flow.tesselation().compute();
-
         flow.defineFictiousCells();
 	// For faster loops on cells define this vector
 	flow.tesselation().cellHandles.clear();
@@ -273,14 +293,22 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
         flow.displayStatistics ();
 	if(!blockHook.empty()){ LOG_INFO("Running blockHook: "<<blockHook); pyRunString(blockHook); }
         flow.computePermeability();
-	//This virtual function does nothing yet, derived class may overload it to make permeability different (see DFN engine)
-	trickPermeability();
+
+	if (multithread && fluidBulkModulus>0) initializeVolumes(flow);  // needed for multithreaded compressible flow (https://bugs.launchpad.net/yade/+bug/1687355)
+	trickPermeability(&flow); //This virtual function does nothing yet, derived class may overload it to make permeability different (see DFN engine)
         porosity = flow.vPoralPorosity/flow.vTotalPorosity;
 
         boundaryConditions ( flow );
         flow.initializePressure ( pZero );
+	if (thermalEngine) {
+		//initializeVolumes(flow);
+		thermalBoundaryConditions ( flow ); 
+		flow.initializeTemperatures ( tZero );
+		flow.sphericalVertexAreaCalculated=false;
+	}
+
 	
-        if ( !first && !multithread && (useSolver==0 || fluidBulkModulus>0 || doInterpolate)) flow.interpolate ( flow.T[!flow.currentTes], flow.tesselation() );
+        if ( !first && !multithread && (useSolver==0 || fluidBulkModulus>0 || doInterpolate || thermalEngine)) flow.interpolate ( flow.T[!flow.currentTes], flow.tesselation() );
         if ( waveAction ) flow.applySinusoidalPressure ( flow.tesselation().Triangulation(), sineMagnitude, sineAverage, 30 );
 	else if (boundaryPressure.size()!=0) flow.applyUserDefinedPressure ( flow.tesselation().Triangulation(), boundaryXPos , boundaryPressure);
         if (normalLubrication || shearLubrication || viscousShear) flow.computeEdgesSurfaces();
@@ -294,7 +322,7 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 	shared_ptr<Sphere> sph ( new Sphere );
 	const int Sph_Index = sph->getClassIndexStatic();
 	FOREACH ( const shared_ptr<Body>& b, *scene->bodies ) {
-		if (!b || ignoredBody==b->getId() || b->isClumpMember()) continue;
+		if (!b || (mask>0 and !b->maskCompatible(mask)) || (convertClumps && b->isClumpMember()) || (b->isClump() && !convertClumps)) continue;
 		posData& dat = buffer[b->getId()];
 		dat.id=b->getId();
 		dat.pos=b->state->pos;
@@ -329,8 +357,11 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
                         flow.zMax = max ( flow.zMax, z+rad );
                 }
         }
-	//FIXME idOffset must be set correctly, not the case here (always 0), then we need walls first or it will fail
-        idOffset = flow.tesselation().maxId+1;
+	//set idOffset if<0, in that case overwrite wallIds and assign values out of range scene->bodies
+        if (idOffset<0) {
+	  idOffset = scene->bodies->size();
+	  for (int i=0; i<6; ++i){wallIds[i]=i+idOffset;}
+	}
         flow.idOffset = idOffset;
         flow.sectionArea = ( flow.xMax - flow.xMin ) * ( flow.zMax-flow.zMin );
         flow.vTotal = ( flow.xMax-flow.xMin ) * ( flow.yMax-flow.yMin ) * ( flow.zMax-flow.zMin );
@@ -350,13 +381,14 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
         flow.boundsIds[5]= &flow.zMaxId;
 
 	for (int k=0;k<6;k++) flow.boundary ( *flow.boundsIds[k] ).useMaxMin = boundaryUseMaxMin[k];
+	//for (int k=0;k<6;k++) flow.thermalBoundary ( *flow.boundsIds[k] ).useMaxMin = boundaryUseMaxMin[k];
 
         flow.cornerMin = CGT::Point ( flow.xMin, flow.yMin, flow.zMin );
         flow.cornerMax = CGT::Point ( flow.xMax, flow.yMax, flow.zMax );
  
         //assign BCs types and values
         boundaryConditions ( flow );
-
+	if (thermalEngine) thermalBoundaryConditions ( flow );
         double center[3];
         for ( int i=0; i<6; i++ ) {
                 if ( *flow.boundsIds[i]<0 ) continue;
@@ -365,7 +397,7 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
                 else {
 			for ( int h=0;h<3;h++ ) center[h] = buffer[*flow.boundsIds[i]].pos[h];
 // 			cerr << "id="<<*flow.boundsIds[i] <<" center="<<center[0]<<","<<center[1]<<","<<center[2]<<endl;
-                        flow.addBoundingPlane ( center, wallThickness, Normal,*flow.boundsIds[i] );
+                        flow.addBoundingPlane (center, wallThickness, Normal,*flow.boundsIds[i] );
                 }
         }
 }
@@ -412,7 +444,7 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 			case ( 3 ) : cell->info().volume() = volumeCellTripleFictious ( cell ); break;
 			default: break; 
 		}
-		if (flow.fluidBulkModulus>0) { cell->info().invVoidVolume() = 1 / ( std::abs(cell->info().volume()) - flow.volumeSolidPore(cell) ); }
+	if (flow.fluidBulkModulus>0 || thermalEngine) { cell->info().invVoidVolume() = 1 / ( std::abs(cell->info().volume()) - volumeCorrection*flow.volumeSolidPore(cell) ); }
 	}
 	if (debug) cout << "Volumes initialised." << endl;
 }
@@ -443,7 +475,7 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
                                 CGT::CVector branch = cell->vertex ( facetVertices[i][0] )->point() - cell->info();
                                 pos_av_facet = ( CGT::Point ) cell->info() + ( branch*Surfk ) *Surfk;
                                 volume_facet_translation += Vel_av*cell->info().facetSurfaces[i];
-                                cell->info().averageVelocity() = cell->info().averageVelocity() - volume_facet_translation/cell->info().volume() * ( pos_av_facet-CGAL::ORIGIN );
+                                cell->info().averageVelocity() = cell->info().averageVelocity() - volume_facet_translation/std::abs(cell->info().volume()) * ( pos_av_facet-CGAL::ORIGIN );
                         }
                 }
         }
@@ -508,7 +540,7 @@ Real TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
                 }
         }
         Real Volume = 0.5* ( ( V[0]-V[1] ).cross ( V[0]-V[2] ) ) [solver->boundary ( b ).coordinate] * ( 0.33333333333* ( V[0][solver->boundary ( b ).coordinate]+ V[1][solver->boundary ( b ).coordinate]+ V[2][solver->boundary ( b ).coordinate] ) - Wall_coordinate );
-        return std::abs ( Volume );
+        return std::abs ( Volume*volumeCorrection );
 }
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 template<class Cellhandle>
@@ -543,7 +575,7 @@ Real TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
         Real Vol1=0.5* ( ( A-BS ).cross ( B-BS ) ) [coord[1]]* ( 0.333333333* ( 2*B[coord[1]]+A[coord[1]] )-Wall_coordinate[1] );
         //second pyramid with triangular base (A,AS,BS)
         Real Vol2=0.5* ( ( AS-BS ).cross ( A-BS ) ) [coord[1]]* ( 0.333333333* ( B[coord[1]]+2*A[coord[1]] )-Wall_coordinate[1] );
-        return std::abs ( Vol1+Vol2 );
+        return std::abs ( (Vol1+Vol2)*volumeCorrection );
 }
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 template<class Cellhandle>
@@ -571,7 +603,7 @@ Real TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
                 }
         }
         Real Volume = ( A[coord[0]]-Wall_coordinate[0] ) * ( A[coord[1]]-Wall_coordinate[1] ) * ( A[coord[2]]-Wall_coordinate[2] );
-        return std::abs ( Volume );
+        return std::abs ( Volume*volumeCorrection );
 }
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 template<class Cellhandle>
@@ -582,9 +614,10 @@ Real TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 	const Vector3r& p1 = positionBufferCurrent[cell->vertex ( 1 )->info().id()].pos;
 	const Vector3r& p2 = positionBufferCurrent[cell->vertex ( 2 )->info().id()].pos;
 	const Vector3r& p3 = positionBufferCurrent[cell->vertex ( 3 )->info().id()].pos;
-	Real volume = inv6 * ((p0-p1).cross(p0-p2)).dot(p0-p3);
+	Real volume = -inv6 * ((p0-p1).cross(p0-p2)).dot(p0-p3);
+	if (/*debug && */volume<0) cerr<<"negative volume for an ordinary pore (temp warning, should still be safe)"<<endl; 
         if ( ! ( cell->info().volumeSign ) ) cell->info().volumeSign= ( volume>0 ) ?1:-1;
-        return volume;
+        return volume*volumeCorrection;
 }
 template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
 void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::computeViscousForces ( Solver& flow )
@@ -633,6 +666,7 @@ void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,
 				O2CVector = -(O1O2Vector - O1CVector);
 				meanRad = (r2 + r1)/2.;
 				Rh = (r1 < r2)? surfaceDist + 0.45 * r1 : surfaceDist + 0.45 * r2;
+
 				deltaV = (sph2->state->vel + sph2->state->angVel.cross(-r2 * normal)) - (sph1->state->vel+ sph1->state->angVel.cross(r1 * normal));
 				angVel1 = sph1->state->angVel;
 				angVel2 = sph2->state->angVel;
@@ -753,6 +787,66 @@ Vector3r TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselat
         }
         return ( meanVel/volume );
 }
+
+#ifdef LINSOLV
+template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
+void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::updateLinearSystem (Solver& flow)
+{
+	trickPermeability(&flow);
+        flow.isLinearSystemSet = false;
+	flow.factorizedEigenSolver = false;
+	if (!first) flow.reuseOrdering = true;
+	meshUpdateInterval = -1;
+	defTolerance = -1; 
+	permUpdateIters = 0;
+	
+}
+#endif
+
+template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
+void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::remeshForFreshlyBrokenBonds ()
+{
+bool foundBreak = false;
+	FOREACH(const shared_ptr<Interaction>& I, *scene->interactions){
+		if (!I || !I->phys.get()) continue;
+		if (I->isReal() && JCFpmPhys::getClassIndexStatic()==I->phys->getClassIndex()) {
+			JCFpmPhys* jcfpmphys = YADE_CAST<JCFpmPhys*>(I->phys.get());
+			if (!jcfpmphys) continue;
+			if (jcfpmphys->breakOccurred && !foundBreak){
+				updateTriangulation = true;
+				jcfpmphys->breakOccurred = false;
+				foundBreak = true;
+			} else if (jcfpmphys->breakOccurred && foundBreak) jcfpmphys->breakOccurred = false;
+		}
+	}
+}
+
+template< class _CellInfo, class _VertexInfo, class _Tesselation, class solverT >
+void TemplateFlowEngine_@TEMPLATE_FLOW_NAME@<_CellInfo,_VertexInfo,_Tesselation,solverT>::applyForces(Solver& flow)
+{
+	Vector3r force;
+	Vector3r torque;
+        FiniteVerticesIterator verticesEnd = solver->T[solver->currentTes].Triangulation().finite_vertices_end();
+	size_t bodiesLength = scene->bodies->size();
+        for ( FiniteVerticesIterator vIt = solver->T[solver->currentTes].Triangulation().finite_vertices_begin(); vIt !=  verticesEnd; vIt++ ) 
+	{
+		int vId = vIt->info().id();
+		force = pressureForce ? Vector3r ( vIt->info().forces[0],vIt->info().forces[1],vIt->info().forces[2] ): Vector3r(0,0,0);
+		torque = Vector3r(0,0,0);
+                if (shearLubrication || viscousShear){
+			force = force + solver->shearLubricationForces[vId];
+			torque = torque + solver->shearLubricationTorques[vId];
+			if (pumpTorque)
+				torque = torque + solver->pumpLubricationTorques[vId];
+		}
+		if (twistTorque) torque = torque + solver->twistLubricationTorques[vId];
+		if (normalLubrication) force = force + solver-> normalLubricationForce[vId];
+		if (vIt->info().id() < bodiesLength) {
+			scene->forces.addForce ( vId, force);
+			scene->forces.addTorque ( vId, torque);}
+        }
+}
+
 
 #endif //FLOW_ENGINE
 

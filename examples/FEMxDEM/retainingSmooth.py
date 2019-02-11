@@ -1,6 +1,15 @@
 """ Author: Ning Guo <ceguo@connect.ust.hk>
     run `mv retainingSmooth.yade.gz 0.yade.gz`
     to generate initial RVE packing
+
+How to run this script:
+    sudo apt install python-escript
+    cd examples/FEMxDEM
+    export PYTHONPATH="/usr/lib/python-escript:../../py/FEMxDEM"
+    export LD_LIBRARY_PATH=/usr/lib/python-escript/lib
+    ln -s /path/to/yade ../../py/FEMxDEM/yadeimport.py
+    /path/to/yade ./retainingSmooth.py
+Please amend these instructions if you find that they do not work.
 """
 from esys.escript import *
 from esys.finley import Rectangle
@@ -9,6 +18,18 @@ from esys.escript.pdetools import Projector
 from msFEM2D import MultiScale
 from saveGauss import saveGauss2D
 import time
+import os
+import errno
+
+try:
+   os.mkdir('./result/')
+   os.mkdir('./result/gauss')
+   os.mkdir('./result/vtk')
+   os.mkdir('./result/packing')
+except OSError as exc:
+   if exc.errno != errno.EEXIST:
+      raise
+   pass
 
 vel = -0.00017; surcharge=-2.e4; # surcharge equals to the initial vertical stress of the RVE packing; vel<0 passive failure; vel>0 active failure
 B = 0.4; H = 0.2; wallH = 0.17; baseH = H-wallH; # setup dimensions

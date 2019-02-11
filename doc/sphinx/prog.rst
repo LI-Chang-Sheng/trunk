@@ -109,9 +109,9 @@ The versioning software used is `GIT <http://git-scm.com/>`__, for which a short
 tutorial can be found in :ref:`yade-github-label`. 
 GIT is a distributed revision control system. It is available packaged for all major linux distributions.
 
-The source code is hosted on `GitHub <https://github.com/yade/>`__ , which is periodically
+The source code is hosted on `GitHub <https://gitlab.com/yade-dev/>`__ , which is periodically
 imported to Launchpad for building PPA-packages.
-The repository `can be http-browsed <https://github.com/yade/trunk>`__.
+The repository `can be http-browsed <https://gitlab.com/yade-dev/trunk>`__.
 
 Build robot
 -----------
@@ -275,10 +275,10 @@ In addition to standard ReST syntax, yade provides several shorthand macros:
 	like :ysrc:`this<core/Cell.hpp>`.
 
 ``|ycomp|``
-	is used in attribute description for those that should not be provided by the used, but are auto-computed instead; ``|ycomp|`` expands to |ycomp|.
+	is used in attribute description for those that should not be provided by the user, but are auto-computed instead; ``|ycomp|`` expands to |ycomp|.
 
 ``|yupdate|``
-	marks attributes that are periodically update, being subset of the previous. ``|yupdate|`` expands to |yupdate|.
+	marks attributes that are periodically updated, being subset of the previous. ``|yupdate|`` expands to |yupdate|.
 	
 ``\$...\$``
 	delimits inline math expressions; they will be replaced by::
@@ -326,7 +326,7 @@ Some c++ might have long or content-rich documentation, which is rather inconven
 
 		'''
 
-.. note:: Boost::python embeds function signatures in the docstring (before the one provided by the user). Therefore,  before creating separate documentation of your function, have a look at its ``__doc__`` attribute and copy the first line (and the blank lie afterwards) in the separate docstring. The first line is then used to create the function signature (arguments and return value).
+.. note:: Boost::python embeds function signatures in the docstring (before the one provided by the user). Therefore,  before creating separate documentation of your function, have a look at its ``__doc__`` attribute and copy the first line (and the blank line afterwards) in the separate docstring. The first line is then used to create the function signature (arguments and return value).
 
 
 Internal c++ documentation
@@ -391,6 +391,7 @@ Eigen provides full rich linear algebra functionality. Some code firther uses th
 In Python, basic numeric types are wrapped and imported from the ``minieigen`` module; the types drop the ``r`` type qualifier at the end, the syntax is otherwise similar. ``Se3r`` is not wrapped at all, only converted automatically, rarely as it is needed, from/to a ``(Vector3,Quaternion)`` tuple/list.
 
 .. ipython::
+	:okexcept:
 
 	@suppress
 	Yade [0]: from math import pi
@@ -423,13 +424,14 @@ Since serialization and dispatchers need extended type and inheritance informati
 Some RTTI information can be accessed from python:
 
 .. ipython::
+	:okexcept:
 	
 	@suppress
 	Yade [1]: import yade.system
 
 	Yade [2]: yade.system.childClasses('Shape')
 
-	Yade [3]: Sphere().name            ## getClassName()
+	Yade [3]: Sphere().__class__.__name__            ## getClassName()
 
 
 Serialization
@@ -473,7 +475,7 @@ All (serializable) types in Yade are one of the following:
 
   This funcionality is hidden behind the macro :ref:`YADE_CLASS_BASE_DOC` used in class declaration body (header file), which takes base class and list of attributes::
 
-	YADE_CLASS_BASE_DOC_ATTRS(ThisClass,BaseClass,"class documentation",((type1,attribute1,initValue1,,"Documentation for attribute 1"))((type2,attribute2,initValue2,,"Documentation for attribute 2"));
+	YADE_CLASS_BASE_DOC_ATTRS(ThisClass,BaseClass,"class documentation",((type1,attribute1,initValue1,,"Documentation for attribute 1"))((type2,attribute2,initValue2,,"Documentation for attribute 2")));
 
   Note that attributes are encodes in double parentheses, not separated by commas. Empty attribute list can be given simply by ``YADE_CLASS_BASE_DOC_ATTRS(ThisClass,BaseClass,"documentation",)`` (the last comma is mandatory), or by omiting ``ATTRS`` from macro name and last parameter altogether.
 
@@ -554,6 +556,7 @@ and this is the implementation:
 We can create a mini-simulation (with only one GravityEngine):
 
 .. ipython::
+	:okexcept:
 
 	Yade [1]: O.engines=[GravityEngine(gravity=Vector3(0,0,-9.81))]
 
@@ -715,9 +718,9 @@ Expected parameters are indicated by macro name components separated with unders
 	will be put directly into the generated constructor's body. Mostly used for calling createIndex(); in the constructor.
 
 	.. note:: 
-		The code must not contain commas ouside parentheses (since preprocessor uses commas to separate macro arguments). If you need complex things at construction time, create a separate init() function and call it from the constructor instead.
+		The code must not contain commas outside parentheses (since preprocessor uses commas to separate macro arguments). If you need complex things at construction time, create a separate init() function and call it from the constructor instead.
 ``py``
-	will be appeneded directly after generated python code that registers the class and all its attributes. You can use it to access class methods from python, for instance, to override an existing attribute with the same name etc:
+	will be appended directly after generated python code that registers the class and all its attributes. You can use it to access class methods from python, for instance, to override an existing attribute with the same name etc:
 
 	.. code-block:: c++
 
@@ -1107,11 +1110,11 @@ At places which are susceptible of being accessed concurrently from multiple thr
 Timing
 -------
 
-Yade provides 2 services for measuring time spent in different pars of the code. One has the granularity of engine and can be enabled at runtime. The other one is finer, but requires adjusting and recompiling the code being measured.
+Yade provides 2 services for measuring time spent in different parts of the code. One has the granularity of engine and can be enabled at runtime. The other one is finer, but requires adjusting and recompiling the code being measured.
 
 Per-engine timing
 ^^^^^^^^^^^^^^^^^^
-The coarser timing works by merely accumulating numebr of invocations and time (with the precision of the ``clock_gettime`` function) spent in each engine, which can be then post-processed by associated Python module ``yade.timing``. There is a static bool variable controlling whether such measurements take place (disabled by default), which you can change
+The coarser timing works by merely accumulating number of invocations and time (with the precision of the ``clock_gettime`` function) spent in each engine, which can be then post-processed by associated Python module ``yade.timing``. There is a static bool variable controlling whether such measurements take place (disabled by default), which you can change
 
 .. code-block:: c++
 
@@ -1144,11 +1147,11 @@ Exec count and time can be accessed and manipulated through ``Engine::timingInfo
 In-engine and in-functor timing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Timing within engines (and functors) is based on :yref:`TimingDeltas` class. It is made for timing loops (functors' loop is in their respective dispatcher) and stores cummulatively time differences between *checkpoints*.
+Timing within engines (and functors) is based on :yref:`TimingDeltas` class which is by default instantiated in engines and functors as Engine::timingDeltas and Functor::timingDeltas (:yref:`Engine.timingDeltas` and :yref:`Functor.timingDeltas` in Python). It is made for timing loops (functors' loop is in their respective dispatcher) and stores cummulatively time differences between *checkpoints*.
 
 .. note:: Fine timing with ``TimingDeltas`` will only work if timing is enabled globally (see previous section). The code would still run, but giving zero times and exec counts.
 
-#. Engine::timingDeltas must point to an instance of :yref:`TimingDeltas` (prefferably instantiate :yref:`TimingDeltas` in the constructor):
+#. Preferably define the timingDeltas attributes in the constructor:
 
 	.. code-block:: c++
 		
@@ -1410,11 +1413,11 @@ In some cases, such as OpenMP-loops requiring integral index (OpenMP >= 3.0 allo
 
 .. code-block:: c++
 
-	inr nIntr=(int)scene->interactions->size(); // hoist container size
+	int nIntr=(int)scene->interactions->size(); // hoist container size
 	#pragma omp parallel for
-	for(int j=0; j<nIntr, j++){
-	   const shared_ptr<Interaction>& i(scene->interactions[j]);
-	   if(!->isReal()) continue;
+	for(int j=0; j<nIntr; j++){
+	   const shared_ptr<Interaction>& i=(*scene->interactions)[j];
+	   if(!i->isReal()) continue;
 	   /* … */
 	}
 
@@ -1453,6 +1456,7 @@ This scenario leads to special design, which allows fast parallel write access:
 Synchronization is handled automatically if values are read from python:
 
 .. ipython::
+	:okexcept:
 
 	Yade [0]: O.bodies.append(Body())
 
@@ -1627,6 +1631,7 @@ Each class deriving from :yref:`Serializable` is automatically exposed to python
 Wrapped classes define special constructor taking keyword arguments corresponding to class attributes; therefore, it is the same to write:
 
 .. ipython::
+	:okexcept:
 
 	Yade [1]: f1=ForceEngine()
 
@@ -1637,6 +1642,7 @@ Wrapped classes define special constructor taking keyword arguments correspondin
 and 
 
 .. ipython::
+	:okexcept:
 
 	Yade [1]: f2=ForceEngine(ids=[0,4,5],force=Vector3(0,-1,-2))
 
@@ -1728,56 +1734,3 @@ Renaming class attribute
 ------------------------
 
 Renaming class attribute is handled from c++ code. You have the choice of merely warning at accessing old attribute (giving the new name), or of throwing exception in addition, both with provided explanation. See ``deprec`` parameter to :ref:`YADE_CLASS_BASE_DOC` for details.
-
-Debian packaging instructions
-==============================
-In order to make parallel installation of several Yade version possible, we adopted similar strategy as e.g. ``gcc`` packagers in Debian did:
-
-#. Real Yade packages are named ``yade-0.30`` (for stable versions) or ``yade-bzr2341`` (for snapshots).
-#. They provide ``yade`` or ``yade-snapshot`` virtual packages respectively.
-#. Each source package creates several installable packages (using ``bzr2341`` as example version):
-
-   #. ``yade-bzr2341`` with the optimized binaries; the executable binary is ``yade-bzr2341`` (``yade-bzr2341-multi``, …)
-   #. ``yade-bzr2341-dbg`` with debug binaries (debugging symbols, non-optimized, and with crash handlers); the executable binary is ``yade-bzr2341-dbg``
-   #. ``yade-bzr2341-doc`` with sample scripts and some documentation (see `bug #398176 <https://bugs.launchpad.net/yade/+bug/398176>`_ however)
-   #. (future?) ``yade-bzr2341-reference`` with reference documentation (see `bug #401004 <https://bugs.launchpad.net/yade/+bug/401004>`_)
-#. Using `Debian alternatives <http://www.debian-administration.org/articles/91>`_, the highest installed package provides additionally commands without the version specification like ``yade``, ``yade-multi``, … as aliases to that version's binaries. (``yade-dbg``, … for the debuggin packages). The exact rule is:
-
-   #. Stable releases have always higher priority than snapshots
-   #. Higher versions/revisions have higher pripority than lower versions/revisions.
-
-Prepare source package
-----------------------
-
-Debian packaging files are located in :ysrc:`debian/` directory. They contain build recipe :ysrc:`debian/rules`, dependecy and package declarations :ysrc:`debian/control` and maintainer scripts. Some of those files are only provided as templates, where some variables (such as version number) are replaced by special script.
-
-The script :ysrc:`scripts/debian-prep` processes templates in :ysrc:`debian/` and creates files which can be used by debian packaging system. Before running this script:
-
-#. If you are releasing stable version, make sure there is file named ``RELEASE`` containing single line with version number (such as ``0.30``). This will make :ysrc:`scripts/debian-prep` create release packages. In absence of this file, snapshots packaging will be created instead. Release or revision number (as detected by running ``bzr revno`` in the source tree) is stored in ``VERSION`` file, where it is picked up during package build and embedded in the binary.
-#. Find out for which debian/ubuntu series your package will be built. This is the name that will appear on the top of (newly created) ``debian/changelog`` file. This name will be usually ``unstable``, ``testing`` or ``stable`` for debian and ``karmic``, ``lucid`` etc for ubuntu. WHen package is uploaded to Launchpad's build service, the package will be built for this specified release.
-
-Then run the script from the top-level directory, giving series name as its first (only) argument::
-
-	\$ scripts/debian-prep lucid
-
-After this, signed debian source package can be created::
-
-	\$ debuild -S -sa -k62A21250 -I -Iattic
-
-(``-k`` gives GPG key identifier, ``-I`` skips ``.bzr`` and similar directories, ``-Iattic`` will skip the useless ``attic`` directory).
-
-Create binary package
----------------------
-Local in-tree build
-	Once files in ``debian/`` are prepared, packages can be build by issuing::
-	\$ fakeroot debian/rules binary
-Clean system build
-	Using ``pbuilder`` system, package can be built in a chroot containing clean debian/ubuntu system, as if freshly installed. Package dependencies are automatically installed and package build attempted. This is a good way of testing packaging before having the package built remotely at Launchpad. Details are provided at `wiki page <https://www.yade-dem.org/wiki/DebianPackages>`_.
-Launchpad build service
-	Launchpad provides service to compile package for different ubuntu releases (series), for all supported architectures, and host archive of those packages for download via APT. Having appropriate permissions at Launchpad (verified GPG key), source package can be uploaded to yade's archive by::
-
-		\$ dput ppa:yade-users/ppa ../yade-bzr2341_1_source.changes
-
-	After several hours (depending on load of Launchpad build farm), new binary packages will be published at https://launchpad.net/~yade-users/+archive/ppa.
-	
-	This process is well documented at https://help.launchpad.net/Packaging/PPA.

@@ -143,7 +143,10 @@ except ImportError:
 import sphinx
 from docutils.parsers.rst import directives
 from docutils import nodes
-from sphinx.util.compat import Directive
+try:
+    from sphinx.util.compat import Directive
+except ImportError:
+    from docutils.parsers.rst import Directive
 
 # Our own
 from IPython import Config, InteractiveShell

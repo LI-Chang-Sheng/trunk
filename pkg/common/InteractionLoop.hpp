@@ -1,8 +1,8 @@
 // 2009 © Václav Šmilauer <eudoxos@arcig.cz>
 #pragma once
-#include<core/GlobalEngine.hpp>
-#include<pkg/common/Callbacks.hpp>
-#include<pkg/common/Dispatching.hpp>
+#include <core/GlobalEngine.hpp>
+#include <pkg/common/Callbacks.hpp>
+#include <pkg/common/Dispatching.hpp>
 
 #ifdef USE_TIMING_DELTAS
 	#define TIMING_DELTAS_CHECKPOINT(cpt) timingDeltas->checkpoint(cpt)
@@ -14,7 +14,7 @@
 
 class InteractionLoop: public GlobalEngine {
 	bool alreadyWarnedNoCollider;
-	typedef std::pair<Body::id_t, Body::id_t> idPair;
+	using idPair = std::pair<Body::id_t, Body::id_t>;
 	// store interactions that should be deleted after loop in action, not later
 	#ifdef YADE_OPENMP
 		std::vector<std::list<idPair> > eraseAfterLoopIds;
@@ -26,7 +26,7 @@ class InteractionLoop: public GlobalEngine {
 	public:
 		virtual void pyHandleCustomCtorArgs(boost::python::tuple& t, boost::python::dict& d);
 		virtual void action();
-		YADE_CLASS_BASE_DOC_ATTRS_CTOR_PY(InteractionLoop,GlobalEngine,"Unified dispatcher for handling interaction loop at every step, for parallel performance reasons.\n\n.. admonition:: Special constructor\n\n\tConstructs from 3 lists of :yref:`Ig2<IGeomFunctor>`, :yref:`Ip2<IPhysFunctor>`, :yref:`Law<LawFunctor>` functors respectively; they will be passed to interal dispatchers, which you might retrieve.",
+		YADE_CLASS_BASE_DOC_ATTRS_CTOR_PY(InteractionLoop,GlobalEngine,"Unified dispatcher for handling interaction loop at every step, for parallel performance reasons.\n\n.. admonition:: Special constructor\n\n\tConstructs from 3 lists of :yref:`Ig2<IGeomFunctor>`, :yref:`Ip2<IPhysFunctor>`, :yref:`Law2<LawFunctor>` functors respectively; they will be passed to internal dispatchers, which you might retrieve as :yref:`geomDispatcher<InteractionLoop.geomDispatcher>`, :yref:`physDispatcher<InteractionLoop.physDispatcher>`, :yref:`lawDispatcher<InteractionLoop.lawDispatcher>` respectively.",
 			((shared_ptr<IGeomDispatcher>,geomDispatcher,new IGeomDispatcher,Attr::readonly,":yref:`IGeomDispatcher` object that is used for dispatch."))
 			((shared_ptr<IPhysDispatcher>,physDispatcher,new IPhysDispatcher,Attr::readonly,":yref:`IPhysDispatcher` object used for dispatch."))
 			((shared_ptr<LawDispatcher>,lawDispatcher,new LawDispatcher,Attr::readonly,":yref:`LawDispatcher` object used for dispatch."))

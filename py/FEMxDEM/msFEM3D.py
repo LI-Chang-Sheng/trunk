@@ -60,7 +60,15 @@ class MultiScale(object):
       """
       self.__domain=domain
       self.__pde=LinearPDE(domain,numEquations=self.__domain.getDim(),numSolutions=self.__domain.getDim())
-      self.__pde.getSolverOptions().setSolverMethod(SolverOptions.DIRECT)
+      try:
+            self.__pde.getSolverOptions().setSolverMethod(SolverOptions.DIRECT)
+      except:
+            #import time
+            print "======================================================================="
+            print "For better performance compile python-escript with direct solver method"
+            print "======================================================================="
+            raw_input("Press Enter to continue...")
+            #time.sleep(5)
       self.__pde.setSymmetryOn()
       #self.__pde.getSolverOptions().setTolerance(rtol**2)
       #self.__pde.getSolverOptions().setPackage(SolverOptions.UMFPACK)

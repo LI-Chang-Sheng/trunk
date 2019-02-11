@@ -157,7 +157,12 @@ def stopIfDamaged():
 		else:
 			print "Damaged, stopping."
 			ft,fc=max(sigma),min(sigma)
-			print 'Strengths fc=%g, ft=%g, |fc/ft|=%g'%(fc,ft,abs(fc/ft))
+			if doModes==3:
+				print 'Strengths fc=%g, ft=%g, |fc/ft|=%g'%(fc,ft,abs(fc/ft))
+			if doModes==2:
+				print 'Compressive strength fc=%g'%(abs(fc))
+			if doModes==1:
+				print 'Tensile strength ft=%g'%(abs(ft))
 			title=O.tags['description'] if 'description' in O.tags.keys() else O.tags['params']
 			print 'gnuplot',plot.saveGnuplot(O.tags['id'],title=title)
 			print 'Bye.'

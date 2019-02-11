@@ -13,6 +13,7 @@ from PyQt5 import QtCore
 from PyQt5 import QtGui
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
+from PyQt5 import QtWebKit, QtWebKitWidgets
 
 from yade.qt.ui_controller import Ui_Controller
 
@@ -28,7 +29,6 @@ webWindows=[]
 sphinxOnlineDocPath='https://www.yade-dem.org/doc/'
 "Base URL for the documentation. Packaged versions should change to the local installation directory."
 
-
 import os.path
 # find if we have docs installed locally from package
 sphinxLocalDocPath=yade.config.prefix+'/share/doc/yade'+yade.config.suffix+'-doc/html/'
@@ -42,11 +42,10 @@ else: sphinxPrefix=sphinxOnlineDocPath
 
 sphinxDocWrapperPage=sphinxPrefix+'/yade.wrapper.html'
 
-
-
+def sslErrorHandler(reply, errorList):
+	reply.ignoreSslErrors()
 
 def openUrl(url):
-	from PyQt5 import QtWebKit
 	global maxWebWindows,webWindows
 	reuseLast=False
 	# use the last window if the class is the same and only the attribute differs
@@ -55,21 +54,14 @@ def openUrl(url):
 		#print str(webWindows[-1].url()).split('#')[-1].split('.')[2],url.split('#')[-1].split('.')[2]
 	except: pass
 	if not reuseLast:
-		if len(webWindows)<maxWebWindows: webWindows.append(QtWebKit.QWebView())
+		if len(webWindows)<maxWebWindows: webWindows.append(QtWebKitWidgets.QWebView())
 		else: webWindows=webWindows[1:]+[webWindows[0]]
 	web=webWindows[-1]
-	web.load(QUrl(url)); web.setWindowTitle(url);
-	if 0:
-		def killSidebar(result):
-			frame=web.page().mainFrame()
-			frame.evaluateJavaScript("var bv=$('.bodywrapper'); bv.css('margin','0 0 0 0');")
-			frame.evaluateJavaScript("var sbw=$('.sphinxsidebarwrapper'); sbw.css('display','none');")
-			frame.evaluateJavaScript("var sb=$('.sphinxsidebar'); sb.css('display','none'); ")
-			frame.evaluateJavaScript("var sb=$('.sidebar'); sb.css('width','0px'); ")
-			web.loadFinished.disconnect(killSidebar)
-		web.loadFinished.connect(killSidebar)
-	web.show();	web.raise_()
-
+	web.page().networkAccessManager().sslErrors.connect(sslErrorHandler)
+	web.load(QUrl(url))
+	web.setWindowTitle(url)
+	web.setFocus()
+	web.show()
 
 controller=None
 
@@ -143,13 +135,17 @@ class ControllerClass(QWidget,Ui_Controller):
 		self.displayArea.setWidget(se)
 	def loadSlot(self):
 		f=QFileDialog.getOpenFileName(self,'Load simulation','','Yade simulations (*.xml *.xml.bz2 *.xml.gz *.yade *.yade.gz *.yade.bz2);; *.*')
-		f=str(f)
+		f=str(f[0])
 		if not f: return # cancelled
 		self.deactivateControls()
 		O.load(f)
 	def saveSlot(self):
 		f=QFileDialog.getSaveFileName(self,'Save simulation','','Yade simulations (*.xml *.xml.bz2 *.xml.gz *.yade *.yade.gz *.yade.bz2);; *.*')
-		f=str(f)
+		f=str(f[0])
+		splf = f.split('.')
+		if (len(splf) == 1):
+			print('No extension is found in the file name! Added .xml.bz2')
+			f = f+'.xml.bz2'
 		if not f: return # cancelled
 		O.save(f)
 	def reloadSlot(self):

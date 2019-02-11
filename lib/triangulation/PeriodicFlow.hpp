@@ -14,6 +14,11 @@
 // #endif
 
 
+/* TODO:
+- remove computePermeability(), mostly a duplicate of the non-periodic version
+
+*/
+
 namespace CGT{
 
 // 	typedef CGT::FlowBoundingSphere<PeriFlowTesselation> PeriodicFlowBoundingSphere;
@@ -31,7 +36,7 @@ namespace CGT{
 		using BaseFlowSolver::noCache; using BaseFlowSolver::rAverage; using BaseFlowSolver::distanceCorrection; using BaseFlowSolver::minPermLength; using BaseFlowSolver::checkSphereFacetOverlap; using BaseFlowSolver::viscosity; using BaseFlowSolver::kFactor; using BaseFlowSolver::permeabilityMap; using BaseFlowSolver::maxKdivKmean; using BaseFlowSolver::clampKValues; using BaseFlowSolver::KOptFactor; using BaseFlowSolver::meanKStat; using BaseFlowSolver::fluidBulkModulus; using BaseFlowSolver::relax; using BaseFlowSolver::tolerance; using BaseFlowSolver::minKdivKmean; using BaseFlowSolver::resetRHS;
 		
 		//same for functions
-		using _N::defineFictiousCells; using _N::addBoundingPlanes; using _N::boundary;
+		using _N::defineFictiousCells; using _N::addBoundingPlanes; using _N::boundary; using _N::tesselation; using _N::surfaceSolidThroatInPore;
 		
 		void interpolate(Tesselation& Tes, Tesselation& NewTes);
 		void computeFacetForcesWithCache(bool onlyCache=false);
@@ -56,11 +61,11 @@ void PeriodicFlow<_Tesselation>::interpolate(Tesselation& Tes, Tesselation& NewT
 		CellHandle& newCell = *cellIt;
 		if (newCell->info().Pcondition || newCell->info().isGhost) continue;
 		CVector center ( 0,0,0 );
-		if (newCell->info().fictious()==0) for ( int k=0;k<4;k++ ) center= center + 0.25* (Tes.vertex(newCell->vertex(k)->info().id())->point()-CGAL::ORIGIN);
+		if (newCell->info().fictious()==0) for ( int k=0;k<4;k++ ) center= center + 0.25* (Tes.vertex(newCell->vertex(k)->info().id())->point().point()-CGAL::ORIGIN);
 		else {
 			Real boundPos=0; int coord=0;
 			for ( int k=0;k<4;k++ ) {
-				if (!newCell->vertex (k)->info().isFictious) center= center+0.3333333333*(Tes.vertex(newCell->vertex(k)->info().id())->point()-CGAL::ORIGIN);
+				if (!newCell->vertex (k)->info().isFictious) center= center+0.3333333333*(Tes.vertex(newCell->vertex(k)->info().id())->point().point()-CGAL::ORIGIN);
 				else {
 					coord=boundary (newCell->vertex(k)->info().id()).coordinate;
 					boundPos=boundary (newCell->vertex(k)->info().id()).p[coord];
@@ -68,7 +73,7 @@ void PeriodicFlow<_Tesselation>::interpolate(Tesselation& Tes, Tesselation& NewT
 			}
 			center=CVector(coord==0?boundPos:center[0],coord==1?boundPos:center[1],coord==2?boundPos:center[2]);
 		}
-                oldCell = Tri.locate(Point(center[0],center[1],center[2]));
+                oldCell = Tri.locate(CGT::Sphere(center[0],center[1],center[2]));
 		//FIXME: should use getInfo
                 newCell->info().p() = oldCell->info().shiftedP();
         }
@@ -201,9 +206,9 @@ void PeriodicFlow<_Tesselation>::computePermeability()
 						cell->info().facetSphereCrossSections[j][jj]=0.5*W[jj]->point().weight()*Wm3::FastInvCos1((W[permut3[jj][1]]->point()-W[permut3[jj][0]]->point())*(W[permut3[jj][2]]->point()-W[permut3[jj][0]]->point()));
 #else
 					cell->info().facetSphereCrossSections[j]=CVector(
-					W[0]->info().isFictious ? 0 : 0.5*v0.weight()*acos((v1-v0)*(v2-v0)/sqrt((v1-v0).squared_length()*(v2-v0).squared_length())),
-					W[1]->info().isFictious ? 0 : 0.5*v1.weight()*acos((v0-v1)*(v2-v1)/sqrt((v1-v0).squared_length()*(v2-v1).squared_length())),
-					W[2]->info().isFictious ? 0 : 0.5*v2.weight()*acos((v0-v2)*(v1-v2)/sqrt((v1-v2).squared_length()*(v2-v0).squared_length())));
+					W[0]->info().isFictious ? 0 : 0.5*v0.weight()*acos((v1.point()-v0.point())*(v2.point()-v0.point())/sqrt((v1.point()-v0.point()).squared_length()*(v2.point()-v0.point()).squared_length())),
+					W[1]->info().isFictious ? 0 : 0.5*v1.weight()*acos((v0.point()-v1.point())*(v2.point()-v1.point())/sqrt((v1.point()-v0.point()).squared_length()*(v2.point()-v1.point()).squared_length())),
+					W[2]->info().isFictious ? 0 : 0.5*v2.weight()*acos((v0.point()-v2.point())*(v1.point()-v2.point())/sqrt((v1.point()-v2.point()).squared_length()*(v2.point()-v0.point()).squared_length())));
 #endif
 					//FIXME: it should be possible to skip completely blocked cells, currently the problem is it segfault for undefined areas
 					//if (cell->info().blocked) continue;//We don't need permeability for blocked cells, it will be set to zero anyway
@@ -221,7 +226,7 @@ void PeriodicFlow<_Tesselation>::computePermeability()
 					Real fluidArea=0;
 					int test=0;
 					if (distance!=0) {
-						if (minPermLength>0 && distanceCorrection) distance=max(minPermLength,distance);
+						if (minPermLength>0 && distanceCorrection) distance=max(minPermLength*radius,distance);
 						const CVector& Surfk = cell->info().facetSurfaces[j];
 						Real area = sqrt(Surfk.squared_length());
 						const CVector& crossSections = cell->info().facetSphereCrossSections[j];
@@ -232,17 +237,16 @@ void PeriodicFlow<_Tesselation>::computePermeability()
 						//take absolute value, since in rare cases the surface can be negative (overlaping spheres)
 						fluidArea=abs(area-crossSections[0]-crossSections[1]-crossSections[2]+S0);
 						cell->info().facetFluidSurfacesRatio[j]=fluidArea/area;
-						k=(fluidArea * pow(radius,2)) / (8*viscosity*distance);
+						// kFactor<0 means we replace Poiseuille by Darcy localy, yielding a particle size-independent bulk conductivity
+						if (kFactor>0) cell->info().kNorm()[j]= kFactor*(fluidArea * pow(radius,2)) / (8*viscosity*distance);
+						else cell->info().kNorm()[j]= -kFactor * area / distance;						
 						meanDistance += distance;
 						meanRadius += radius;
-						meanK += k*kFactor;
+						meanK +=  (cell->info().kNorm())[j];
 
-					if (k<0 && debugOut) {surfneg+=1;
-					cout<<"__ k<0 __"<<k<<" "<<" fluidArea "<<fluidArea<<" area "<<area<<" "<<crossSections[0]<<" "<<crossSections[1]<<" "<<crossSections[2] <<" "<<W[0]->info().id()<<" "<<W[1]->info().id()<<" "<<W[2]->info().id()<<" "<<p1<<" "<<p2<<" test "<<test<<endl;}
-					     
+						if (k<0 && debugOut) {surfneg+=1; cout<<"__ k<0 __"<<k<<" "<<" fluidArea "<<fluidArea<<" area "<<area<<" "<<crossSections[0]<<" "<<crossSections[1]<<" "<<crossSections[2] <<" "<<W[0]->info().id()<<" "<<W[1]->info().id()<<" "<<W[2]->info().id()<<" "<<p1<<" "<<p2<<" test "<<test<<endl;}
 					} else  {cout <<"infinite K2! surfaces will be missing (FIXME)"<<endl; k = infiniteK;}
 					//Will be corrected in the next loop
-					(cell->info().kNorm())[j]= k*kFactor;
 					if (!neighbourCell->info().isGhost) (neighbourCell->info().kNorm())[Tri.mirror_index(cell, j)]= (cell->info().kNorm())[j];
 					//The following block is correct but not very usefull, since all values are clamped below with MIN and MAX, skip for now
 // 					else {//find the real neighbor connected to our cell through periodicity
@@ -406,7 +410,7 @@ void PeriodicFlow<_Tesselation>::gaussSeidel(Real dt)
 				if (j==0) n += compFlowFactor*(cell->info().kNorm())[j2];
 			} else {
 				m += (cell->info().kNorm())[j2]*cell->neighbor(j2)->info().shiftedP();
-				if ( isinf(m) && j<10 ) cout << "(cell->info().kNorm())[j2] = " << (cell->info().kNorm())[j2] << " cell->neighbor(j2)->info().shiftedP() = " << cell->neighbor(j2)->info().shiftedP() << endl;
+				if ( std::isinf(m) && j<10 ) cout << "(cell->info().kNorm())[j2] = " << (cell->info().kNorm())[j2] << " cell->neighbor(j2)->info().shiftedP() = " << cell->neighbor(j2)->info().shiftedP() << endl;
 				if (j==0) n += (cell->info().kNorm())[j2];
 			} 
 		  }

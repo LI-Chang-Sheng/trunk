@@ -33,14 +33,14 @@ class State: public Serializable, public Indexable{
 		void blockedDOFs_vec_set(const std::string& dofs);
 
 		//! Return displacement (current-reference position)
-		Vector3r displ() const {return pos-refPos;}
+		const Vector3r displ() const {return pos-refPos;}
 		//! Return rotation (current-reference orientation, as Vector3r)
-		Vector3r rot() const { Quaternionr relRot=refOri.conjugate()*ori; AngleAxisr aa(relRot); return aa.axis()*aa.angle(); }
+		const Vector3r rot() const { Quaternionr relRot=refOri.conjugate()*ori; AngleAxisr aa(relRot); return aa.axis()*aa.angle(); }
 
 		// python access functions: pos and ori are references to inside Se3r and cannot be pointed to directly
-		Vector3r pos_get() const {return pos;}
+		const Vector3r pos_get() const {return pos;}
 		void pos_set(const Vector3r p) {pos=p;}
-		Quaternionr ori_get() const {return ori; }
+		const Quaternionr ori_get() const {return ori; }
 		void ori_set(const Quaternionr o){ori=o;}
 
 	YADE_CLASS_BASE_DOC_ATTRS_INIT_CTOR_PY(State,Serializable,"State of a body (spatial configuration, internal variables).",
@@ -53,8 +53,8 @@ class State: public Serializable, public Indexable{
 		((Vector3r,refPos,Vector3r::Zero(),,"Reference position"))
 		((Quaternionr,refOri,Quaternionr::Identity(),,"Reference orientation"))
 		((unsigned,blockedDOFs,,,"[Will be overridden]"))
-		((bool,isDamped,true,,"Damping in :yref:`Newtonintegrator` can be deactivated for individual particles by setting this variable to FALSE. E.g. damping is inappropriate for particles in free flight under gravity but it might still be applicable to other particles in the same simulation."))
-		((Real,densityScaling,1,,"|yupdate| see :yref:`GlobalStiffnessTimeStepper::targetDt`."))
+		((bool,isDamped,true,,"Damping in :yref:`NewtonIntegrator` can be deactivated for individual particles by setting this variable to FALSE. E.g. damping is inappropriate for particles in free flight under gravity but it might still be applicable to other particles in the same simulation."))
+		((Real,densityScaling,-1,,"|yupdate| see :yref:`GlobalStiffnessTimeStepper::targetDt`."))
 #ifdef YADE_SPH
 		((Real,rho, -1.0,, "Current density (only for SPH-model)"))      // [Mueller2003], (12)
 		((Real,rho0,-1.0,, "Rest density (only for SPH-model)"))         // [Mueller2003], (12)
@@ -63,6 +63,25 @@ class State: public Serializable, public Indexable{
 #ifdef YADE_LIQMIGRATION
 		((Real,Vf, 0.0,,   "Individual amount of liquid"))
 		((Real,Vmin, 0.0,, "Minimal amount of liquid"))
+#endif
+#ifdef YADE_DEFORM
+		((Real,dR, 0.0,,   "Sphere deformation"))
+#endif
+#ifdef THERMAL
+		((Real,temp,0,,"temperature of the body"))
+		((bool,oldTempSet,false,,"flag to determine which integration method to use"))
+		((Real,tempHold,0,,"holds temperature for 2nd order difference"))
+		((Real,oldTemp,0,,"change of temp (for thermal expansion)"))
+		((Real,stepFlux,0,,"flux during current step"))
+		((Real,capVol,0,,"total overlapping volume"))
+		((Real,U,0,,"internal energy of the body"))
+		((Real,Cp,0,,"internal energy of the body"))
+		((Real,k,0,,"thermal conductivity of the body"))
+		((Real,alpha,0,,"coefficient of thermal expansion"))
+		((bool,Tcondition,false,,"indicates if particle is assigned dirichlet (constant temp) condition"))
+		((int,boundaryId,-1,,"identifies if a particle is associated with constant temperature thrermal boundary condition"))
+        	((Real,stabilityCoefficient,0,,"sum of solid and fluid thermal resistivities for use in automatic timestep estimation"))
+        	((Real,delRadius,0,,"radius change due to thermal expansion"))
 #endif
 		,
 		/* additional initializers */

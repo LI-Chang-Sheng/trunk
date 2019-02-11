@@ -1,3 +1,4 @@
+# this script demonstrates how to benchmark using timingEnabled: how to measure how much time each module takes.
 from yade import pack,timing
 #O.bodies.append([	sphere((0.2,0,0),.5,fixed=True), sphere((0.2,0.0,1.01),.5), ])
 O.bodies.append(pack.regularHexa(pack.inAlignedBox((0,0,0),(10,10,1)),radius=.5,gap=0,fixed=True))

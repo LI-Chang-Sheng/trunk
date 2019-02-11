@@ -8,19 +8,22 @@
 #ifdef FLOW_ENGINE
 #pragma once
 
-#define EIGENSPARSE_LIB //comment this if CHOLMOD is not available
+#define CHOLMOD_LIBS //comment this if CHOLMOD is not available
 // #define TAUCS_LIB //comment this if TAUCS lib is not available, it will disable PARDISO lib as well
 
-#ifdef EIGENSPARSE_LIB
+#ifdef CHOLMOD_LIBS
 	#include <Eigen/Sparse>
 	#include <Eigen/SparseCore>
 	#include <Eigen/CholmodSupport>
+	#include <cholmod.h>
 #endif
+
 #ifdef TAUCS_LIB
 #define TAUCS_CORE_DOUBLE
 #include <complex> //THIS ONE MUST ABSOLUTELY BE INCLUDED BEFORE TAUCS.H!
 #include <stdlib.h>
 #include <float.h>
+//#include <time.h>
 extern "C" {
 #include "taucs.h"
 }
@@ -39,6 +42,7 @@ public:
 	DECLARE_TESSELATION_TYPES(FlowType)
 	typedef typename FlowType::Tesselation	Tesselation;
 	using FlowType::useSolver;
+	using FlowType::multithread;
 	using FlowType::T;
 	using FlowType::currentTes;
 	using FlowType::boundary;
@@ -54,6 +58,14 @@ public:
 	using FlowType::resetNetwork;
 	using FlowType::tesselation;
 	using FlowType::resetRHS;
+	using FlowType::factorizeOnly;  // used for backgroundAction()
+	using FlowType::getCHOLMODPerfTimings;
+	using FlowType::saveMesh;
+	using FlowType::ompThreads;
+	using FlowType::reuseOrdering;
+	using FlowType::fluidRho;
+	using FlowType::fluidCp;
+	using FlowType::thermalEngine;
 
 	//! TAUCS DECs
 	vector<FiniteCellsIterator> orderedCells;
@@ -61,10 +73,12 @@ public:
 	bool isFullLinearSystemGSSet;
 	bool areCellsOrdered;//true when orderedCells is filled, turn it false after retriangulation
 	bool updatedRHS;
+	struct timeval start, end;
 	
-	#ifdef EIGENSPARSE_LIB
+	#ifdef CHOLMOD_LIBS
 	//Eigen's sparse matrix and solver
 	Eigen::SparseMatrix<double> A;
+	//Eigen::SparseMatrix<std::complex<double>,RowMajor> Ga; for row major stuff?
 	typedef Eigen::Triplet<double> ETriplet;
 	std::vector<ETriplet> tripletList;//The list of non-zero components in Eigen sparse matrix
 	Eigen::CholmodDecomposition<Eigen::SparseMatrix<double>, Eigen::Lower > eSolver;
@@ -77,6 +91,25 @@ public:
 	//here we specify both thread numbers independently
 	int numFactorizeThreads;
 	int numSolveThreads;
+	#endif
+	#ifdef SUITESPARSE_VERSION_4
+	// cholmod direct solver (useSolver=4)
+
+	cholmod_triplet* cholT;
+	cholmod_factor* L; 
+	cholmod_factor* M; 
+	cholmod_factor* N;
+	cholmod_sparse* Achol;
+	cholmod_common com;
+	bool factorExists;
+	void add_T_entry(cholmod_triplet* T, long r, long c, double x)
+	{
+		size_t k = T->nnz;
+		((long*)T->i)[k] = r;
+		((long*)T->j)[k] = c;
+		((double*)T->x)[k] = x;
+		T->nnz++;
+	}
 	#endif
 
 	#ifdef TAUCS_LIB
@@ -148,12 +181,16 @@ public:
 	virtual int setLinearSystem(Real dt);
 	void vectorizedGaussSeidel(Real dt);
 	virtual int setLinearSystemFullGS(Real dt);
+	void augmentConductivityMatrix(Real dt);
+	void setNewCellTemps();
+	void initializeInternalEnergy();
 	
 	int taucsSolveTest();
 	int taucsSolve(Real dt);
 	int pardisoSolveTest();
 	int pardisoSolve(Real dt);
 	int eigenSolve(Real dt);
+	int cholmodSolve(Real dt);
 	
 	void copyGsToCells();
 	void copyCellsToGs(Real dt);
@@ -177,6 +214,9 @@ public:
 			break;
 		case 3:
 			eigenSolve(dt);
+			break;
+		case 4:
+			cholmodSolve(dt);
 			break;
 		}
 		computedOnce=true;

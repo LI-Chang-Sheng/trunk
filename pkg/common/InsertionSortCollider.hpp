@@ -65,11 +65,6 @@ Possible performance improvements & bugs
 // #define this macro to enable timing within this engine
 // #define ISC_TIMING
 
-// #define to turn on some tracing information for the periodic part
-// all code under this can be probably removed at some point, when the collider will have been tested thoroughly
-// #define PISC_DEBUG
-
-
 #ifdef ISC_TIMING
 	#define ISC_CHECKPOINT(cpt) timingDeltas->checkpoint(cpt)
 #else
@@ -83,9 +78,7 @@ class Integrator;
 class GeneralIntegratorInsertionSortCollider;// Forward decleration of child to decleare it as friend
 
 class InsertionSortCollider: public Collider{
-
 	friend class GeneralIntegratorInsertionSortCollider;
-
 	//! struct for storing bounds of bodies
 	struct Bounds{
 		//! coordinate along the given sortAxis
@@ -95,7 +88,7 @@ class InsertionSortCollider: public Collider{
 		//! periodic cell coordinate
 		int period;
 		//! is it the minimum (true) or maximum (false) bound?
-		struct{ unsigned hasBB:1; unsigned isMin:1; } flags;
+		struct {bool hasBB:true, isMin:true;} flags;
 		Bounds(Real coord_, Body::id_t id_, bool isMin): coord(coord_), id(id_), period(0){ flags.isMin=isMin; }
 		bool operator<(const Bounds& b) const {
 			/* handle special case of zero-width bodies, which could otherwise get min/max swapped in the unstable std::sort */
@@ -107,10 +100,6 @@ class InsertionSortCollider: public Collider{
 			return coord>b.coord;
 		}
 	};
-	#ifdef PISC_DEBUG
-		int watch1, watch2;
-		bool watchIds(Body::id_t id1,Body::id_t id2) const { return (watch1<0 &&(watch2==id1||watch2==id2))||(watch2<0 && (watch1==id1||watch1==id2))||(watch1==id1 && watch2==id2)||(watch1==id2 && watch2==id1); }
-	#endif
 		// we need this to find out about current maxVelocitySq
 		shared_ptr<NewtonIntegrator> newton;
 		// if False, no type of striding is used
@@ -128,11 +117,7 @@ class InsertionSortCollider: public Collider{
 		Bounds& operator[](long idx){ assert(idx<size && idx>=0); return vec[idx]; }
 		const Bounds& operator[](long idx) const { assert(idx<size && idx>=0); return vec[idx]; }
 		// update number of bodies, periodic properties and size from Scene
-		void updatePeriodicity(Scene* scene){
-			assert(scene->isPeriodic);
-			assert(axis>=0 && axis <=2);
-			cellDim=scene->cell->getSize()[axis];
-		}
+		void updatePeriodicity(Scene* );
 		// normalize given index to the right range (wraps around)
 		long norm(long i) const { if(i<0) i+=size; long ret=i%size; assert(ret>=0 && ret<size); return ret;}
 		VecBounds(): axis(-1), size(0), loIdx(0){}
@@ -145,7 +130,8 @@ class InsertionSortCollider: public Collider{
 	std::vector<Real> maxima, minima;
 	//! Whether the Scene was periodic (to detect the change, which shouldn't happen, but shouldn't crash us either)
 	bool periodic;
-
+	//! Store inverse sizes to avoid repeated divisions within loops 
+	Vector3r invSizes;
 	// return python representation of the BB struct, as ([...],[...],[...]).
   boost::python::tuple dumpBounds();
 
@@ -155,7 +141,6 @@ class InsertionSortCollider: public Collider{
 	void insertionSort(VecBounds& v,InteractionContainer*,Scene*,bool doCollide=true);
 	void insertionSortParallel(VecBounds& v,InteractionContainer*,Scene*,bool doCollide=true);
 	void handleBoundInversion(Body::id_t,Body::id_t,InteractionContainer*,Scene*);
-// 	bool spatialOverlap(Body::id_t,Body::id_t) const;
 
 	// periodic variants
 	void insertionSortPeri(VecBounds& v,InteractionContainer*,Scene*,bool doCollide=true);
@@ -213,6 +198,7 @@ class InsertionSortCollider: public Collider{
 		((bool,allowBiggerThanPeriod,false,,"If true, tests on bodies sizes will be disabled, and the simulation will run normaly even if bodies larger than period are found. It can be useful when the periodic problem include e.g. a floor modelized with wall/box/facet.\nBe sure you know what you are doing if you touch this flag. The result is undefined if one large body moves out of the (0,0,0) period."))
 		((bool,sortThenCollide,false,,"Separate sorting and colliding phase; it is MUCH slower, but all interactions are processed at every step; this effectively makes the collider non-persistent, not remembering last state. (The default behavior relies on the fact that inversions during insertion sort are overlaps of bounding boxes that just started/ceased to exist, and only processes those; this makes the collider much more efficient.)"))
 		((int,targetInterv,50,,"(experimental) Target number of iterations between bound update, used to define a smaller sweep distance for slower grains if >0, else always use 1*verletDist. Useful in simulations with strong velocity contrasts between slow bodies and fast bodies."))
+		((Real,overlapTolerance,1e-7,,"Tolerance on determining overlap. In rare cases different parts of the code can inconsistently lead to different results in terms of overlap, with false negative by spatialOverlapPeri possibly leading to nasty bugs in contact detection (false positive are harmless). This tolerance is to avoid false negative, the value can be understood as relative to 1 (i.e. independent of particle size or any other reference length). The default should be ok."))
 		((Real,updatingDispFactor,-1,,"(experimental) Displacement factor used to trigger bound update: the bound is updated only if updatingDispFactor*disp>sweepDist when >0, else all bounds are updated."))
 		((Real,verletDist,((void)"Automatically initialized",-.5),,"Length by which to enlarge particle bounds, to avoid running collider at every step. Stride disabled if zero. Negative value will trigger automatic computation, so that the real value will be *verletDist* × minimum spherical particle radius; if there are no spherical particles, it will be disabled. The actual length added to one bound can be only a fraction of verletDist when :yref:`InsertionSortCollider::targetInterv` is > 0."))
 		((Real,minSweepDistFactor,0.1,,"Minimal distance by which enlarge all bounding boxes; superseeds computed value of verletDist when lower that (minSweepDistFactor x verletDist)."))
@@ -224,9 +210,6 @@ class InsertionSortCollider: public Collider{
 			#ifdef ISC_TIMING
 				timingDeltas=shared_ptr<TimingDeltas>(new TimingDeltas);
 			#endif 
-			#ifdef PISC_DEBUG
-				watch1=watch2=-1; // disable watching
-			#endif
 			for(int i=0; i<3; i++) BB[i].axis=i;
 			periodic=false;
 			strideActive=false;
@@ -235,10 +218,6 @@ class InsertionSortCollider: public Collider{
 		.def_readonly("strideActive",&InsertionSortCollider::strideActive,"Whether striding is active (read-only; for debugging). |yupdate|")
 		.def_readonly("periodic",&InsertionSortCollider::periodic,"Whether the collider is in periodic mode (read-only; for debugging) |yupdate|")
 		.def("dumpBounds",&InsertionSortCollider::dumpBounds,"Return representation of the internal sort data. The format is ``([...],[...],[...])`` for 3 axes, where each ``...`` is a list of entries (bounds). The entry is a tuple with the fllowing items:\n\n* coordinate (float)\n* body id (int), but negated for negative bounds\n* period numer (int), if the collider is in the periodic regime.")
-		#ifdef PISC_DEBUG
-			.def_readwrite("watch1",&InsertionSortCollider::watch1,"debugging only: watched body Id.")
-			.def_readwrite("watch2",&InsertionSortCollider::watch2,"debugging only: watched body Id.")
-		#endif
 	);
 	DECLARE_LOGGER;
 };

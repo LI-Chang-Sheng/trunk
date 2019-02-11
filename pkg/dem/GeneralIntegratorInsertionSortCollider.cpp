@@ -75,9 +75,6 @@ void GeneralIntegratorInsertionSortCollider::action(){
 		assert(BB[0].axis==0); assert(BB[1].axis==1); assert(BB[2].axis==2);
 		if(periodic) for(int i=0; i<3; i++) BB[i].updatePeriodicity(scene);
 
-		// compatibility block, can be removed later
-		findBoundDispatcherInEnginesIfNoFunctorsAndWarn();
-
 		if(verletDist<0){
 			Real minR=std::numeric_limits<Real>::infinity();
 			FOREACH(const shared_ptr<Body>& b, *scene->bodies){
@@ -86,9 +83,9 @@ void GeneralIntegratorInsertionSortCollider::action(){
 				if(!s) continue;
 				minR=min(s->radius,minR);
 			}
-			if (isinf(minR)) LOG_ERROR("verletDist is set to 0 because no spheres were found. It will result in suboptimal performances, consider setting a positive verletDist in your script.");
+			if (std::isinf(minR)) LOG_ERROR("verletDist is set to 0 because no spheres were found. It will result in suboptimal performances, consider setting a positive verletDist in your script.");
 			// if no spheres, disable stride
-			verletDist=isinf(minR) ? 0 : std::abs(verletDist)*minR;
+			verletDist=std::isinf(minR) ? 0 : std::abs(verletDist)*minR;
 		}
 		
 		// update bounds via boundDispatcher

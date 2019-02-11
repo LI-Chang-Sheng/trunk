@@ -58,6 +58,8 @@ packer=InsertGenerator3D(
   seed=0
 )
 
+## FIXME: caling generatePacking causes SIGSEGV/SIGABRT stack trace points to an error inside function http://esys.geocomp.uq.edu.au/gengeo_doxygen_doc/snapshot/html/classfit__3d__sphere__fn.html
+##        maybe some data for this function call is badly prepared?
 packer.generatePacking (
   volume=box,
   ntable=mntable,
